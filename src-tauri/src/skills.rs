@@ -2,7 +2,8 @@ use crate::error::{AppError, Result};
 use crate::platforms::{central_dir, expand_path, PLATFORMS};
 use chrono::{DateTime, Local};
 use humansize::{format_size, BINARY};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
+use serde_yaml::Value;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
@@ -27,6 +28,22 @@ pub struct Skill {
     pub tags: Vec<String>,
     pub routes: Vec<String>,
     pub route_conflicts: Vec<RouteConflict>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct SkillMetadata {
+    title: String,
+    tagline: String,
+    version: String,
+    tags: Vec<String>,
+}
+
+#[derive(Debug, Default, Deserialize)]
+struct RawFrontmatter {
+    name: Option<Value>,
+    description: Option<Value>,
+    version: Option<Value>,
+    tags: Option<Value>,
 }
 
 fn ensure_central() -> Result<()> {
@@ -80,42 +97,131 @@ pub fn existing_central_skill_paths(id: &str) -> Result<(PathBuf, PathBuf)> {
     Ok((path, canonical_path))
 }
 
-/// Pull `description:` from SKILL.md frontmatter, or fall back to the first
-/// non-empty / non-heading line of the body. Empty string if nothing usable.
-fn read_tagline(skill_dir: &Path) -> String {
-    let skill_md = skill_dir.join("SKILL.md");
-    let Ok(content) = fs::read_to_string(&skill_md) else {
-        return String::new();
-    };
+fn compact_text(value: &str) -> Option<String> {
+    let compact = value.split_whitespace().collect::<Vec<_>>().join(" ");
+    if compact.is_empty() {
+        None
+    } else {
+        Some(compact)
+    }
+}
 
+fn value_to_string(value: Value) -> Option<String> {
+    match value {
+        Value::String(value) => compact_text(&value),
+        Value::Number(value) => compact_text(&value.to_string()),
+        Value::Bool(value) => compact_text(&value.to_string()),
+        _ => None,
+    }
+}
+
+fn value_to_tags(value: Value) -> Vec<String> {
+    match value {
+        Value::Sequence(values) => values.into_iter().filter_map(value_to_string).collect(),
+        Value::String(value) => {
+            let parts: Vec<&str> = if value.contains(',') {
+                value.split(',').collect()
+            } else {
+                value.split_whitespace().collect()
+            };
+            parts.into_iter().filter_map(compact_text).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+fn split_frontmatter(content: &str) -> (Option<String>, String) {
     let mut lines = content.lines();
-    let first = lines.next().unwrap_or("").trim();
-    if first == "---" {
-        for line in lines.by_ref() {
-            let t = line.trim();
-            if t == "---" {
-                break;
-            }
-            if let Some(rest) = t.strip_prefix("description:") {
-                return rest
-                    .trim()
-                    .trim_matches(|c| c == '"' || c == '\'')
-                    .to_string();
-            }
+    if lines.next().map(str::trim) != Some("---") {
+        return (None, content.to_string());
+    }
+
+    let mut yaml = Vec::new();
+    let mut body = Vec::new();
+    let mut found_end = false;
+
+    for line in lines {
+        if !found_end && line.trim() == "---" {
+            found_end = true;
+            continue;
+        }
+
+        if found_end {
+            body.push(line);
+        } else {
+            yaml.push(line);
         }
     }
-    // Fallback: first non-empty, non-heading line in the rest
+
+    if found_end {
+        (Some(yaml.join("\n")), body.join("\n"))
+    } else {
+        (None, content.to_string())
+    }
+}
+
+fn body_fallback(content: &str) -> String {
     for line in content.lines() {
         let t = line.trim();
         if t.is_empty() || t.starts_with('#') || t == "---" {
             continue;
         }
-        if t.starts_with("name:") || t.starts_with("description:") {
+        if t.starts_with("name:")
+            || t.starts_with("description:")
+            || t.starts_with("version:")
+            || t.starts_with("tags:")
+        {
             continue;
         }
         return t.to_string();
     }
     String::new()
+}
+
+fn parse_skill_metadata(content: &str, fallback_id: &str) -> SkillMetadata {
+    let (frontmatter, body) = split_frontmatter(content);
+    let parsed = frontmatter
+        .as_deref()
+        .and_then(|yaml| serde_yaml::from_str::<RawFrontmatter>(yaml).ok());
+
+    let title = parsed
+        .as_ref()
+        .and_then(|fm| fm.name.clone())
+        .and_then(value_to_string)
+        .unwrap_or_else(|| fallback_id.to_string());
+    let tagline = parsed
+        .as_ref()
+        .and_then(|fm| fm.description.clone())
+        .and_then(value_to_string)
+        .unwrap_or_else(|| body_fallback(&body));
+    let version = parsed
+        .as_ref()
+        .and_then(|fm| fm.version.clone())
+        .and_then(value_to_string)
+        .unwrap_or_default();
+    let tags = parsed
+        .and_then(|fm| fm.tags)
+        .map(value_to_tags)
+        .unwrap_or_default();
+
+    SkillMetadata {
+        title,
+        tagline,
+        version,
+        tags,
+    }
+}
+
+fn read_skill_metadata(skill_dir: &Path, fallback_id: &str) -> SkillMetadata {
+    let skill_md = skill_dir.join("SKILL.md");
+    let Ok(content) = fs::read_to_string(&skill_md) else {
+        return SkillMetadata {
+            title: fallback_id.to_string(),
+            ..SkillMetadata::default()
+        };
+    };
+
+    parse_skill_metadata(&content, fallback_id)
 }
 
 fn dir_stats(dir: &Path) -> (usize, u64) {
@@ -278,15 +384,16 @@ pub fn scan_skills() -> Result<Vec<Skill>> {
         let (files, total_size) = dir_stats(&path);
         let updated = meta.modified().ok().map(relative_time).unwrap_or_default();
         let (routes, route_conflicts) = compute_routes(&name);
+        let metadata = read_skill_metadata(&path, &name);
         skills.push(Skill {
             id: name.clone(),
-            title: name.clone(),
-            tagline: read_tagline(&path),
-            version: String::new(),
+            title: metadata.title,
+            tagline: metadata.tagline,
+            version: metadata.version,
             size: format_size(total_size, BINARY),
             files,
             updated,
-            tags: Vec::new(),
+            tags: metadata.tags,
             routes,
             route_conflicts,
         });
@@ -363,7 +470,7 @@ pub fn delete_skill(id: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{link_points_to_path, validate_skill_id};
+    use super::{link_points_to_path, parse_skill_metadata, validate_skill_id, SkillMetadata};
     use std::path::PathBuf;
 
     #[test]
@@ -413,5 +520,71 @@ mod tests {
             &source,
             &canonical_source
         ));
+    }
+
+    #[test]
+    fn parses_normal_frontmatter_metadata() {
+        let metadata = parse_skill_metadata(
+            "---\nname: CSV Cleaner\ndescription: Clean CSV files\nversion: 1.2.3\ntags:\n  - csv\n  - cleanup\n---\n\n# CSV Cleaner\n",
+            "csv-cleaner",
+        );
+
+        assert_eq!(
+            metadata,
+            SkillMetadata {
+                title: "CSV Cleaner".into(),
+                tagline: "Clean CSV files".into(),
+                version: "1.2.3".into(),
+                tags: vec!["csv".into(), "cleanup".into()],
+            }
+        );
+    }
+
+    #[test]
+    fn parses_quoted_description_and_string_tags() {
+        let metadata = parse_skill_metadata(
+            "---\nname: quoted-skill\ndescription: \"Handles quoted: values\"\ntags: \"quotes, yaml\"\n---\n",
+            "fallback",
+        );
+
+        assert_eq!(metadata.title, "quoted-skill");
+        assert_eq!(metadata.tagline, "Handles quoted: values");
+        assert_eq!(metadata.tags, vec!["quotes", "yaml"]);
+    }
+
+    #[test]
+    fn falls_back_to_body_when_description_is_missing() {
+        let metadata = parse_skill_metadata(
+            "---\nname: body-skill\n---\n\n# Body Skill\n\nUse the first body sentence.",
+            "fallback",
+        );
+
+        assert_eq!(metadata.title, "body-skill");
+        assert_eq!(metadata.tagline, "Use the first body sentence.");
+        assert_eq!(metadata.version, "");
+        assert!(metadata.tags.is_empty());
+    }
+
+    #[test]
+    fn falls_back_when_fields_are_missing() {
+        let metadata = parse_skill_metadata("Plain body fallback.", "missing-fields");
+
+        assert_eq!(metadata.title, "missing-fields");
+        assert_eq!(metadata.tagline, "Plain body fallback.");
+        assert_eq!(metadata.version, "");
+        assert!(metadata.tags.is_empty());
+    }
+
+    #[test]
+    fn tolerates_malformed_frontmatter() {
+        let metadata = parse_skill_metadata(
+            "---\nname: [broken\n---\n\n# Broken\n\nStill readable.",
+            "broken-skill",
+        );
+
+        assert_eq!(metadata.title, "broken-skill");
+        assert_eq!(metadata.tagline, "Still readable.");
+        assert_eq!(metadata.version, "");
+        assert!(metadata.tags.is_empty());
     }
 }

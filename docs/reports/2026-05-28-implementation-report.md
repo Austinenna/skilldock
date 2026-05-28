@@ -60,3 +60,26 @@ Verification:
 - `cargo test`
 - `cargo check`
 - Result: 10 Rust tests passed; Rust check passed.
+
+## Task 4: Parse SKILL.md Frontmatter Properly
+
+Commit target: `feat: parse skill metadata`
+
+Changed files:
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `src-tauri/src/skills.rs`
+
+What changed:
+- Added `serde_yaml` for real SKILL.md frontmatter parsing.
+- Added metadata parsing for `name`, `description`, `version`, and `tags`.
+- Preserved safe fallbacks when frontmatter is missing, malformed, or incomplete.
+- Replaced the old description-only scanner with `read_skill_metadata`.
+- Added parser tests for normal frontmatter, quoted descriptions, string/list tags, body fallback, missing fields, and malformed YAML.
+
+Verification:
+- `rustfmt src/skills.rs`
+- `cargo test`
+- `cargo check`
+- `pnpm build`
+- Result: 15 Rust tests passed; Rust check passed; frontend production build passed.
