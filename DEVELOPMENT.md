@@ -17,26 +17,27 @@ SkillLoom 是一个**集中式 Skill 管理器**：
 
 ---
 
-## 2. 当前原型现状
+## 2. 当前实现状态
 
 ```
 SkillLoom/
-├── index.html          # React + Babel via CDN 入口
-└── src/
-    ├── data.js         # 13 条假数据 + 12 个平台定义
-    ├── palettes.js     # 三套配色（Cool / Warm / Slate）
-    └── app.jsx         # 完整 3 栏 UI + Settings
+├── prototype/          # 早期 HTML/React CDN 原型，留作设计参考
+├── src/                # Vite + React + TypeScript 前端
+├── src-tauri/          # Tauri 2 + Rust 后端
+├── docs/plans/         # roadmap 执行计划
+└── docs/reports/       # 每步修改报告
 ```
 
-- 用 CDN 加载 React 18 + Babel standalone，浏览器实时编译 JSX
-- 所有数据都是内存里的假数据，没有任何 IO
-- 所有用户偏好（主题、密度、视图、隐藏平台）已经走 `localStorage`
+- 前端已经迁移到 Vite + React 18 + TypeScript。
+- 后端已经实现真实文件系统扫描、SKILL.md metadata 解析、symlink 路由、导入、删除、详情读取、配置持久化和文件监听。
+- 路由和删除路径已经做 skill id 校验、canonical path containment、真实目录拒删、冲突 symlink 保护。
+- 前端已经有非阻塞 notice、pending 状态、手动 Refresh，以及 `skills-changed` 自动刷新。
 
-**原型解决的是「长什么样」和「怎么交互」**，真正变成应用还差三件事：
+**当前还差三件事：**
 
-1. **真实文件系统操作**（扫目录、读 SKILL.md、建/删 symlink）
-2. **AI 摘要**（调 Claude API，缓存结果）
-3. **打包成可分发的 macOS .app**
+1. **AI 摘要**（Keychain API key、HTTP 调用、SQLite 缓存）
+2. **打包成可分发的 macOS .app**（bundle、签名、notarization）
+3. **CI / release workflow**（PR 验证、tag 打包）
 
 ---
 
@@ -449,26 +450,27 @@ Tauri 内置 updater：
 ## 9. 开发路线图
 
 ### Phase 0 — 脚手架（0.5 天）
-- [ ] `pnpm create tauri-app`
-- [ ] 把原型组件搬进 `src/`，TS 化，跑通空壳
+- [x] Tauri 2 + Vite + React + TypeScript 工程已落地
+- [x] 原型保留在 `prototype/`，真实前端迁入 `src/`
 - [ ] CI：lint + typecheck + `cargo check`
 
 ### Phase 1 — 只读 MVP（2 天）
-- [ ] `list_platforms` / `scan_skills` 跑通
-- [ ] 真实读取 SKILL.md frontmatter（用 `gray-matter` 或 Rust 的 `serde_yaml`）
-- [ ] 列表 / 详情显示真实数据，但所有写操作禁用
-- [ ] **里程碑**：能跑起来看自己 `~/.skillloom/skills/` 真实内容
+- [x] `list_platforms` / `scan_skills` 跑通
+- [x] 真实读取 SKILL.md frontmatter（Rust `serde_yaml`）
+- [x] 列表 / 详情显示真实数据
+- [x] **里程碑**：能跑起来看自己 `~/.skillloom/skills/` 真实内容
 
 ### Phase 2 — Symlink 路由（1.5 天）
-- [ ] `add_route` / `remove_route` 实现 + 单元测试
-- [ ] 前端 Toggle 接上 `useToggleRoute`
-- [ ] 错误处理（目标已存在、权限拒绝、跨设备挂载等）
-- [ ] **里程碑**：勾选开关，确实在 `~/.claude/skills/` 看到 symlink
+- [x] `add_route` / `remove_route` 实现 + 单元测试
+- [x] 前端 Toggle 接上 Tauri IPC
+- [x] 错误处理（真实目录冲突、指向别处的 symlink、hub 路由拒绝）
+- [x] **里程碑**：勾选开关会创建/删除平台 symlink
 
 ### Phase 3 — Skill 增删（1 天）
-- [ ] `import_skill`：建中央目录 + 默认 SKILL.md 模板
-- [ ] `delete_skill`：先扫所有 symlink 删掉，再删真目录，最后清缓存
-- [ ] **里程碑**：原型里的 Import / Delete 按钮真能干活
+- [x] `import_skill`：建中央目录 + 默认 SKILL.md 模板
+- [x] `delete_skill`：先扫所有 symlink 删掉，再删真目录
+- [ ] 删除 AI 摘要缓存行（等待 AI 缓存实现）
+- [x] **里程碑**：Import / Delete 按钮真能干活
 
 ### Phase 4 — AI 摘要（1.5 天）
 - [ ] Settings 里加 API Key 输入框，存 Keychain
@@ -478,15 +480,15 @@ Tauri 内置 updater：
 - [ ] **里程碑**：每个 skill 都有像样的摘要
 
 ### Phase 5 — 文件监听（1 天）
-- [ ] `notify::Watcher` 跑在后台 thread
-- [ ] 防抖 300ms，emit `skills-changed`
-- [ ] 前端 invalidate query
-- [ ] **里程碑**：在 Finder 里删一个 skill，UI 立刻消失
+- [x] `notify::Watcher` 跑在后台 thread
+- [x] 防抖 350ms，emit `skills-changed`
+- [x] 前端收到事件后刷新 skills
+- [x] **里程碑**：外部文件变化会触发 UI 刷新
 
 ### Phase 6 — 偏好持久化（0.5 天）
-- [ ] config.json 读写
-- [ ] 主题/密度/隐藏平台从 localStorage 迁到 backend config
-- [ ] **里程碑**：所有设置重启后保留
+- [x] config.json 读写
+- [x] 主题/密度/隐藏平台走 backend config
+- [x] **里程碑**：所有设置重启后保留
 
 ### Phase 7 — 打包分发（2 天，含跑通 CI）
 - [ ] Apple Developer ID 证书申请（如果还没有）
@@ -503,6 +505,45 @@ Tauri 内置 updater：
 见 §11。
 
 **总计：~10 个工作日到可发布的 v1.0。**
+
+---
+
+## 9.1 当前限制
+
+- AI 摘要尚未实现，详情页仍显示占位文案。
+- API key 尚未接入 Keychain，不能调用外部模型。
+- `notify` watcher 在启动时读取一次隐藏平台配置；运行中改变可见平台后，手动 Refresh 仍是兜底。
+- macOS bundle 仍未开启，当前不能直接分发 `.app` / `.dmg`。
+- 还没有 GitHub Actions CI，发布流程需要在 Phase 7 补齐。
+
+## 9.2 本地 GitHub 与开发命令
+
+```bash
+git status --short --branch
+git log --oneline --decorate -5
+git remote -v
+```
+
+当前主线分支是 `main`。roadmap 任务按「实现 -> 验证 -> 更新报告 -> 单独提交」推进。
+
+本地验证命令：
+
+```bash
+pnpm build
+cd src-tauri && cargo check
+cd src-tauri && cargo test
+```
+
+本地运行桌面窗口：
+
+```bash
+pnpm tauri dev
+```
+
+后续 CI 建议：
+
+- PR：跑 `pnpm build`、`cargo check`、`cargo test`
+- tag：跑 `pnpm tauri build`，并在证书准备好后加入 signing / notarization
 
 ---
 

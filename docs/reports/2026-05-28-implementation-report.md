@@ -169,3 +169,23 @@ Verification:
 - `cargo test`
 - `pnpm build`
 - Result: Rust check passed; 15 Rust tests passed; frontend production build passed.
+
+## Task 9: Clean Up Documentation And Roadmap
+
+Commit target: `docs: update project roadmap`
+
+Changed files:
+- `README.md`
+- `DEVELOPMENT.md`
+
+What changed:
+- Updated README to describe the current MVP instead of the earlier prototype state.
+- Added current limitations, development commands, and GitHub/CI workflow notes.
+- Updated project structure documentation for `watcher.rs`, `docs/plans`, and `docs/reports`.
+- Updated DEVELOPMENT roadmap checkboxes for completed scaffold, scan, metadata, routing, import/delete, watcher, and config work.
+- Added current limitations and local validation commands to DEVELOPMENT.
+
+Verification:
+- `pnpm build`
+- `cargo check`
+- Result: frontend production build passed; Rust check passed.
