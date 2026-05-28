@@ -1,0 +1,615 @@
+# SkillLoom 开发文档
+
+> 把当前的 HTML/React 原型，做成一个能在 macOS 上跑的真应用，并为后续扩展到 Windows/Linux 留好接口。
+
+---
+
+## 1. 项目目标
+
+SkillLoom 是一个**集中式 Skill 管理器**：
+
+- 所有 skill 真实存放在 **中央目录** `~/.skillloom/skills/`
+  （**注意**：刻意避开 `~/.agents/skills/`——那是 Codex CLI 自己的目录，作为中央仓库会污染 Codex 的真实文件，而且 Codex 的路由 symlink 会指回自己，形成循环）
+- 各 AI 工具（Claude Code、Codex CLI、OpenClaw 等）的 skill 目录里只放**符号链接**，指向中央目录里的真实条目
+- 用户在 SkillLoom 里通过开关勾选「这个 skill 路由到哪些平台」，本质就是新建 / 删除对应的 symlink
+- 每个 skill 提供一段 AI 自动生成的摘要，帮助用户快速理解作用
+- 当前阶段聚焦 macOS，后续再扩展到其他平台
+
+---
+
+## 2. 当前原型现状
+
+```
+SkillLoom/
+├── index.html          # React + Babel via CDN 入口
+└── src/
+    ├── data.js         # 13 条假数据 + 12 个平台定义
+    ├── palettes.js     # 三套配色（Cool / Warm / Slate）
+    └── app.jsx         # 完整 3 栏 UI + Settings
+```
+
+- 用 CDN 加载 React 18 + Babel standalone，浏览器实时编译 JSX
+- 所有数据都是内存里的假数据，没有任何 IO
+- 所有用户偏好（主题、密度、视图、隐藏平台）已经走 `localStorage`
+
+**原型解决的是「长什么样」和「怎么交互」**，真正变成应用还差三件事：
+
+1. **真实文件系统操作**（扫目录、读 SKILL.md、建/删 symlink）
+2. **AI 摘要**（调 Claude API，缓存结果）
+3. **打包成可分发的 macOS .app**
+
+---
+
+## 3. 技术选型
+
+### 3.1 框架：**Tauri 2.x** ✅
+
+| 候选 | 包体积 | 跨平台 | 文件系统 API | 上手难度 | 推荐度 |
+|---|---|---|---|---|---|
+| **Tauri** | ~10 MB | macOS / Win / Linux | Rust 后端，原生 | 中（要学一点 Rust） | ★★★★★ |
+| Electron | ~150 MB | 同上 | Node fs | 低 | ★★★ |
+| Swift / SwiftUI | ~5 MB | **仅 Apple 全家桶** | 原生最佳 | 高，且 UI 要重写 | ★★（被锁死） |
+| Wails (Go) | ~10 MB | 同 Tauri | Go std | 中 | ★★★★（生态弱于 Tauri） |
+
+**为什么选 Tauri：**
+
+- 当前 React UI 几乎能**原样搬过去**，配色/排版/交互一行不用改
+- Rust 写文件系统操作（symlink、watcher、权限处理）类型安全、性能高，比 Node 稳
+- 跨平台从 day 1 就具备，不会等到「macOS 做好了再纠结怎么搬 Win」
+- 自带 codesigning、notarization、auto-updater 工作流
+- 包体积小（~10 MB vs Electron ~150 MB），冷启动快
+
+> 如果你完全不想碰 Rust，可以退而求其次用 Electron + Node。但 symlink/权限/notarization 的坑 Tauri 帮你踩过了大半，长期 ROI 更高。
+
+### 3.2 前端
+
+| 层 | 选型 | 说明 |
+|---|---|---|
+| 构建工具 | **Vite 5** | 替代 CDN + Babel standalone；HMR 体验好 |
+| 框架 | **React 18** | 原型已是 React，零迁移 |
+| 语言 | **TypeScript 5** | 真应用必须上 TS，对 IPC 接口的类型安全尤其重要 |
+| 状态 | **Zustand**（轻量全局） + React state（局部） | 不用 Redux，复杂度不值得 |
+| 异步 | **TanStack Query**（@tanstack/react-query） | 包装 Tauri command 调用，自动缓存、重试、失效 |
+| 样式 | **保留 inline style**（短期）→ **CSS Modules / Tailwind**（中期） | 原型用的就是 inline style，先不动 |
+| 图标 | **lucide-react** | 替换原型里的 emoji/字符占位 |
+
+### 3.3 后端（Tauri Rust）
+
+| 用途 | crate |
+|---|---|
+| Tauri 核心 | `tauri` 2.x |
+| 文件操作 | `std::fs` + `std::os::unix::fs::symlink` |
+| 文件监听 | `notify` |
+| 序列化 | `serde`, `serde_json` |
+| HTTP（调 Claude API） | `reqwest` |
+| 本地缓存 DB | `rusqlite`（bundled feature） |
+| 安全存 API key | `keyring`（走 macOS Keychain） |
+| 错误处理 | `thiserror` + `anyhow` |
+| 异步运行时 | `tokio`（Tauri 自带） |
+| 日志 | `tracing` + `tracing-subscriber` |
+
+---
+
+## 4. 整体架构
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    SkillLoom.app                        │
+│  ┌──────────────────────────┐                           │
+│  │   Frontend (Webview)     │                           │
+│  │   Vite + React + TS      │                           │
+│  │                          │                           │
+│  │   - Sidebar / List /     │                           │
+│  │     Detail / Settings    │                           │
+│  │   - Zustand store        │                           │
+│  │   - TanStack Query       │                           │
+│  └────────────┬─────────────┘                           │
+│               │  invoke(command, args)                  │
+│               │  / listen(event)                        │
+│  ┌────────────▼─────────────┐                           │
+│  │   Backend (Rust)         │                           │
+│  │   Tauri Commands         │                           │
+│  │                          │                           │
+│  │   ┌────────────────┐     │                           │
+│  │   │ skill_scanner  │ ───▶│ ~/.skillloom/skills/         │
+│  │   │ route_manager  │ ───▶│ ~/.claude/skills/         │
+│  │   │ ai_summarizer  │ ───▶│ ~/.openclaw/skills/  ...  │
+│  │   │ fs_watcher     │     │                           │
+│  │   │ config_store   │ ───▶│ ~/Library/App Support/    │
+│  │   └────────────────┘     │     SkillLoom/            │
+│  └──────────────────────────┘                           │
+└─────────────────────────────────────────────────────────┘
+                     │
+                     │ HTTPS
+                     ▼
+            api.anthropic.com (摘要生成)
+```
+
+**核心设计原则：**
+
+- **文件系统是 single source of truth**，App 不维护自己的 skill 列表，每次需要就 scan
+- **App 自己的状态只存偏好**（主题、隐藏平台、API key、AI 摘要缓存）
+- **Symlink 是路由的唯一实现**，没有任何"软配置文件"决定路由，避免不一致
+
+---
+
+## 5. 数据模型
+
+### 5.1 Skill（运行时类型）
+
+```typescript
+// src/types/skill.ts
+export interface Skill {
+  id: string;          // 目录名，e.g. "pdf-extract"
+  title: string;       // SKILL.md frontmatter.name
+  tagline: string;     // SKILL.md frontmatter.description（截到 1 行）
+  version: string;     // frontmatter.version || "0.0.0"
+  files: number;       // fs::read_dir 出来的文件数
+  size: string;        // 人读尺寸，"48 KB"
+  updated: string;     // 最后修改时间（相对，e.g. "2 days ago"）
+  tags: string[];      // frontmatter.tags
+  routes: PlatformId[];// 哪些平台 skills/ 下有 symlink 指过来
+  ai?: string;         // AI 摘要（从缓存读，没有则空）
+  sourcePath: string;  // 绝对路径，e.g. "~/.skilldock/skills/pdf-extract"
+}
+```
+
+### 5.2 Platform
+
+```typescript
+export interface Platform {
+  id: PlatformId;
+  name: string;
+  short: string;
+  path: string;        // ~/.claude/skills/ 这种带 ~ 的形式
+  group: 'Core' | 'Coding' | 'Lobster';
+  isHub?: boolean;
+  visible: boolean;    // 用户在 Settings 里的可见性
+}
+```
+
+平台定义是**静态配置**，硬编码在 Rust 端（`platforms.rs`），前端通过 `list_platforms` 命令拿到。
+
+### 5.3 App 偏好（持久化在磁盘）
+
+存放位置：`~/Library/Application Support/SkillLoom/config.json`
+
+```json
+{
+  "appearance": { "palette": "cool" },
+  "preferences": { "density": "comfortable", "view": "list" },
+  "platforms": { "hidden": ["cursor", "gemini", "..."] },
+  "ai": { "model": "claude-haiku-4-5-20251001" }
+}
+```
+
+API key 不存这里，走 Keychain（见 §8.3）。
+
+### 5.4 AI 摘要缓存（SQLite）
+
+存放位置：`~/Library/Application Support/SkillLoom/cache.db`
+
+```sql
+CREATE TABLE ai_summary (
+  skill_id      TEXT NOT NULL,
+  content_hash  TEXT NOT NULL,     -- SKILL.md 内容的 SHA256，变了就重新生成
+  summary       TEXT NOT NULL,
+  model         TEXT NOT NULL,
+  generated_at  INTEGER NOT NULL,  -- Unix epoch
+  PRIMARY KEY (skill_id, content_hash)
+);
+```
+
+---
+
+## 6. 后端命令（IPC 接口）
+
+所有命令都是 `#[tauri::command] async fn` 形式，错误用统一的 `AppError` 枚举。
+
+### 6.1 扫描类
+
+```rust
+list_platforms() -> Vec<Platform>
+scan_skills() -> Vec<Skill>            // 扫 central，并对每个平台 readdir 推 routes
+get_skill_detail(id: String) -> SkillDetail   // 含完整 SKILL.md 内容
+```
+
+### 6.2 路由类
+
+```rust
+add_route(skill_id: String, platform_id: String) -> Result<()>
+remove_route(skill_id: String, platform_id: String) -> Result<()>
+// 内部实现：
+//   add:    symlink(~/.skillloom/skills/<id>, ~/.claude/skills/<id>)
+//   remove: 先确认 ~/.claude/skills/<id> 是 symlink 且指向 central，再 unlink
+```
+
+**安全检查（必须）：**
+
+- 创建 symlink 前确保目标在 `~/.skillloom/skills/` 下，防止做出指向系统目录的链接
+- 删除前必须先 `symlink_metadata` 判断是 symlink，**绝不能 rm 真目录**
+- 平台目标目录不存在时**自动创建**（用户可能从没装过那个工具）
+
+### 6.3 Skill 增删
+
+```rust
+import_skill(name: String, description: String) -> Result<Skill>
+delete_skill(id: String) -> Result<()>
+// delete 实现：
+//   1. 遍历所有平台 skills/ 目录，删掉指向该 skill 的 symlink
+//   2. 删除 ~/.skillloom/skills/<id> 真目录
+//   3. 删除 AI 摘要缓存行
+```
+
+### 6.4 AI 摘要
+
+```rust
+generate_summary(skill_id: String, force: bool) -> Result<String>
+// force=false 时优先读缓存
+```
+
+### 6.5 文件监听（推事件给前端）
+
+```rust
+// 不是 command，是后台任务
+// 启动时跑 notify::Watcher，监听：
+//   ~/.skillloom/skills/
+//   每个 visible 平台的 skills/
+// 变化时 emit "skills-changed" 事件，前端 listen 后 invalidate React Query
+```
+
+### 6.6 配置
+
+```rust
+get_config() -> Config
+update_config(patch: ConfigPatch) -> Result<Config>
+get_api_key() -> Option<String>     // 从 Keychain 读
+set_api_key(key: String) -> Result<()>
+```
+
+---
+
+## 7. 前端改造
+
+### 7.1 项目脚手架
+
+```bash
+# 一次性初始化（在临时目录）
+pnpm create tauri-app skillloom
+# 选 React + TypeScript + pnpm
+
+# 然后把当前 src/app.jsx 的组件拆进新工程
+```
+
+迁移后的目录大致：
+
+```
+SkillLoom/
+├── src/                         # 前端
+│   ├── main.tsx
+│   ├── App.tsx
+│   ├── components/
+│   │   ├── Sidebar.tsx
+│   │   ├── SkillList.tsx
+│   │   ├── SkillDetail.tsx
+│   │   ├── SettingsPane.tsx
+│   │   └── ImportModal.tsx
+│   ├── store/
+│   │   ├── usePreferences.ts    # Zustand
+│   │   └── useSkills.ts         # TanStack Query wrappers
+│   ├── ipc/
+│   │   └── commands.ts          # invoke 的薄封装，给所有命令上类型
+│   ├── styles/
+│   │   └── palettes.ts          # 原 palettes.js
+│   └── types/
+│       └── index.ts
+├── src-tauri/                   # 后端
+│   ├── Cargo.toml
+│   ├── tauri.conf.json
+│   └── src/
+│       ├── main.rs
+│       ├── commands/
+│       │   ├── skills.rs
+│       │   ├── routes.rs
+│       │   ├── ai.rs
+│       │   └── config.rs
+│       ├── fs/
+│       │   ├── scanner.rs
+│       │   └── symlink.rs
+│       ├── watcher.rs
+│       ├── platforms.rs
+│       └── error.rs
+└── package.json
+```
+
+### 7.2 IPC 封装示例
+
+```typescript
+// src/ipc/commands.ts
+import { invoke } from '@tauri-apps/api/core';
+import type { Skill, Platform, Config } from '@/types';
+
+export const api = {
+  listPlatforms: () => invoke<Platform[]>('list_platforms'),
+  scanSkills:    () => invoke<Skill[]>('scan_skills'),
+  addRoute:      (skillId: string, platformId: string) =>
+    invoke<void>('add_route', { skillId, platformId }),
+  removeRoute:   (skillId: string, platformId: string) =>
+    invoke<void>('remove_route', { skillId, platformId }),
+  importSkill:   (name: string, description: string) =>
+    invoke<Skill>('import_skill', { name, description }),
+  deleteSkill:   (id: string) => invoke<void>('delete_skill', { id }),
+  generateSummary: (id: string, force = false) =>
+    invoke<string>('generate_summary', { skillId: id, force }),
+  getConfig:     () => invoke<Config>('get_config'),
+  updateConfig:  (patch: Partial<Config>) =>
+    invoke<Config>('update_config', { patch }),
+};
+```
+
+### 7.3 React Query 用法
+
+```typescript
+// src/store/useSkills.ts
+export function useSkills() {
+  return useQuery({
+    queryKey: ['skills'],
+    queryFn: api.scanSkills,
+    staleTime: 30_000,
+  });
+}
+
+export function useToggleRoute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ skillId, platformId, on }: ToggleArgs) =>
+      on ? api.addRoute(skillId, platformId)
+         : api.removeRoute(skillId, platformId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['skills'] }),
+  });
+}
+```
+
+### 7.4 文件变化驱动刷新
+
+```typescript
+// src/App.tsx
+useEffect(() => {
+  const unlisten = listen('skills-changed', () => {
+    queryClient.invalidateQueries({ queryKey: ['skills'] });
+  });
+  return () => { unlisten.then((fn) => fn()); };
+}, []);
+```
+
+---
+
+## 8. macOS 专题
+
+### 8.1 路径展开
+
+`~/.skillloom/skills/` 这类带 `~` 的路径在 Rust 里要展开：
+
+```rust
+let home = dirs::home_dir().ok_or(AppError::NoHomeDir)?;
+let central = home.join(".skillloom").join("skills");
+```
+
+用 `dirs` crate，不要手 parse `$HOME`。
+
+### 8.2 应用数据目录
+
+```rust
+// Tauri 提供
+let app_data = app.path().app_data_dir()?;
+// macOS: ~/Library/Application Support/com.skillloom.app/
+```
+
+### 8.3 API Key → Keychain
+
+```rust
+use keyring::Entry;
+
+fn set_key(key: &str) -> Result<()> {
+    Entry::new("com.skillloom.app", "anthropic_api_key")?.set_password(key)?;
+    Ok(())
+}
+```
+
+不要存到 config.json，磁盘明文 = 安全审查不过。
+
+### 8.4 沙箱
+
+**不开启沙箱**。原因：要读写 `~/.claude/`、`~/.openclaw/` 等任意 dotfile 目录，sandbox 下需要 user-selected file 权限或 Group Container entitlements，体验差。
+
+代价：**不能上 Mac App Store**，只能从官网/GitHub Releases 分发。对开发者工具来说完全可接受。
+
+### 8.5 Codesigning + Notarization
+
+每次发版的硬性流程，在 GitHub Actions 里跑：
+
+1. 准备 **Developer ID Application** 证书（年费 $99 的 Apple Developer Program）
+2. `tauri build --target universal-apple-darwin` 出 arm64 + x86_64 通用二进制
+3. 用 `tauri-action` 自动签名 + notarize（apple-id / app-specific-password / team-id 走环境变量）
+4. 产物：`.dmg` + `.app.tar.gz`（前者给人下载，后者给 updater）
+
+不做这步：用户首次打开会撞 Gatekeeper 提示「无法验证开发者」，几乎没人会去走「右键 → 打开」的绕路。
+
+### 8.6 自动更新
+
+Tauri 内置 updater：
+
+- 后端在 `Cargo.toml` 启 `tauri = { features = ["updater"] }`
+- 配 `tauri.conf.json` 里的 `updater.endpoints` 指向 `https://releases.skillloom.app/{{target}}/{{current_version}}`
+- 该 endpoint 返回签名后的 JSON（公钥校验，防中间人）
+- GitHub Releases + 一个简单的 Cloudflare Worker / Vercel function 转发即可
+
+---
+
+## 9. 开发路线图
+
+### Phase 0 — 脚手架（0.5 天）
+- [ ] `pnpm create tauri-app`
+- [ ] 把原型组件搬进 `src/`，TS 化，跑通空壳
+- [ ] CI：lint + typecheck + `cargo check`
+
+### Phase 1 — 只读 MVP（2 天）
+- [ ] `list_platforms` / `scan_skills` 跑通
+- [ ] 真实读取 SKILL.md frontmatter（用 `gray-matter` 或 Rust 的 `serde_yaml`）
+- [ ] 列表 / 详情显示真实数据，但所有写操作禁用
+- [ ] **里程碑**：能跑起来看自己 `~/.skillloom/skills/` 真实内容
+
+### Phase 2 — Symlink 路由（1.5 天）
+- [ ] `add_route` / `remove_route` 实现 + 单元测试
+- [ ] 前端 Toggle 接上 `useToggleRoute`
+- [ ] 错误处理（目标已存在、权限拒绝、跨设备挂载等）
+- [ ] **里程碑**：勾选开关，确实在 `~/.claude/skills/` 看到 symlink
+
+### Phase 3 — Skill 增删（1 天）
+- [ ] `import_skill`：建中央目录 + 默认 SKILL.md 模板
+- [ ] `delete_skill`：先扫所有 symlink 删掉，再删真目录，最后清缓存
+- [ ] **里程碑**：原型里的 Import / Delete 按钮真能干活
+
+### Phase 4 — AI 摘要（1.5 天）
+- [ ] Settings 里加 API Key 输入框，存 Keychain
+- [ ] `generate_summary` 调 Claude API（model: `claude-haiku-4-5-20251001`，省成本）
+- [ ] SQLite 缓存按 content_hash 命中
+- [ ] 失败/无 key 时降级到 SKILL.md 原始描述
+- [ ] **里程碑**：每个 skill 都有像样的摘要
+
+### Phase 5 — 文件监听（1 天）
+- [ ] `notify::Watcher` 跑在后台 thread
+- [ ] 防抖 300ms，emit `skills-changed`
+- [ ] 前端 invalidate query
+- [ ] **里程碑**：在 Finder 里删一个 skill，UI 立刻消失
+
+### Phase 6 — 偏好持久化（0.5 天）
+- [ ] config.json 读写
+- [ ] 主题/密度/隐藏平台从 localStorage 迁到 backend config
+- [ ] **里程碑**：所有设置重启后保留
+
+### Phase 7 — 打包分发（2 天，含跑通 CI）
+- [ ] Apple Developer ID 证书申请（如果还没有）
+- [ ] `tauri-action` workflow，PR / tag 触发
+- [ ] 通用二进制 + DMG + notarization
+- [ ] 简单官网（GitHub Pages 即可）放下载链接
+- [ ] **里程碑**：朋友下载装 .app，双击能直接跑
+
+### Phase 8 — 自动更新（0.5 天）
+- [ ] updater endpoint
+- [ ] 应用内"检查更新"按钮
+
+### Phase 9+ — 跨平台扩展
+见 §11。
+
+**总计：~10 个工作日到可发布的 v1.0。**
+
+---
+
+## 10. 风险与注意事项
+
+### 10.1 Symlink 的坑
+
+| 场景 | 处理 |
+|---|---|
+| 目标已存在且不是 symlink（用户手动建了真目录） | 提示用户：「Claude 已有同名真实 skill 目录，请手动处理」，绝不覆盖 |
+| 目标已存在且是 symlink 但指向别处 | 同上，提示冲突 |
+| 中央 skill 被外部删除，平台还留着断链 | 监听器检测到时自动清理断链 |
+| 跨 filesystem（中央在 NFS、平台在本地） | symlink 不受影响，但 watcher 可能漏事件，UI 加手动刷新按钮兜底 |
+
+### 10.2 权限
+
+- 不需要 Full Disk Access（只读写 `~` 下的文件）
+- 不需要任何特殊 entitlement
+- macOS 14+ 对 `~/Library/` 子目录写入也无障碍
+
+### 10.3 性能
+
+- 中央 skill 数过 1000 时全量 scan 会慢，加 mtime 索引或 SQLite 缓存
+- AI 摘要必须懒生成 + 缓存，不能在 scan 时同步触发
+
+### 10.4 数据迁移
+
+未来如果改了 SKILL.md schema 或 config.json 字段，加 `schemaVersion`，启动时跑迁移函数。
+
+---
+
+## 11. 跨平台扩展
+
+### 11.1 平台差异
+
+| 维度 | macOS | Linux | Windows |
+|---|---|---|---|
+| Symlink | 原生 `symlink()` | 原生 `symlink()` | **需要管理员或开发者模式**，否则降级到 hardlink / junction |
+| 配置目录 | `~/Library/Application Support/SkillLoom/` | `~/.config/skillloom/` | `%APPDATA%\SkillLoom\` |
+| 中央目录默认 | `~/.skillloom/skills/` | 同 | `%USERPROFILE%\.skillloom\skills\` |
+| 密钥存储 | Keychain | Secret Service (libsecret) | Credential Manager |
+| 代码签名 | Developer ID + notarize | 一般不签 | Authenticode 证书 |
+
+Tauri + `dirs` + `keyring` 三个库已经把上面大部分平台差异封装好，**业务代码不用 cfg**，只在打包阶段切目标。
+
+### 11.2 Windows 的关键决策
+
+Windows 的 symlink 默认要管理员权限。**两个方案：**
+
+1. **要求开发者模式**：Settings → For Developers → Developer Mode 开启后普通用户能建 symlink。文档里加引导。
+2. **降级到 junction**（目录的 hardlink）：对 directory 行得通，对 file 不行。SKILL.md 是文件，所以 skill 整个是个目录，可以走 junction，体验等价。
+
+推荐方案 2 + fallback 方案 1，代码上检测到 symlink 失败就尝试 junction。
+
+### 11.3 移动端
+
+不考虑。skill 文件系统映射的概念在 iOS/Android 沙箱里玩不转。
+
+---
+
+## 12. 第一步：怎么开工
+
+```bash
+cd ~/Projects/apps/skilldock
+
+# 装 Rust（如果还没装）
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+
+# 装 pnpm
+brew install pnpm
+
+# 把当前原型挪到 prototype/ 留作参考
+mkdir -p prototype && mv index.html src prototype/
+
+# 起一个新的 Tauri 工程
+pnpm create tauri-app .
+#   App name: skillloom
+#   Window title: SkillLoom
+#   Package manager: pnpm
+#   UI template: React
+#   UI flavor: TypeScript
+
+# 开发模式跑起来
+pnpm tauri dev
+```
+
+跑通空壳之后，按 §9 Phase 1 开始把原型的组件迁过去。
+
+---
+
+## 13. 决策记录（ADR）
+
+需要记录的关键决策（建议另起 `docs/adr/` 目录）：
+
+1. **ADR-001：选 Tauri 而非 Electron** —— 见 §3.1
+2. **ADR-002：Symlink 作为路由唯一实现** —— filesystem 是 truth，避免与配置文件不一致
+3. **ADR-003：不上 App Store** —— sandbox 与读取任意 dotfile 不兼容
+4. **ADR-004：AI 摘要懒生成 + content_hash 缓存** —— 见 §5.4
+5. **ADR-005：API Key 走 Keychain，不存 config.json** —— 见 §8.3
+
+---
+
+## 14. 参考资料
+
+- Tauri 2.x 文档：https://tauri.app/start/
+- Anthropic Skills 规范（SKILL.md 结构）：https://docs.claude.com/en/docs/agents-and-tools/agent-skills/overview
+- macOS Codesigning + Notarization：https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
+- `tauri-action`（GitHub Actions 一站式打包）：https://github.com/tauri-apps/tauri-action
+- `notify` crate（文件监听）：https://docs.rs/notify/
+- `keyring` crate（跨平台密钥存储）：https://docs.rs/keyring/
