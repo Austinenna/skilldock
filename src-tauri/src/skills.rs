@@ -35,6 +35,23 @@ fn ensure_central() -> Result<()> {
     Ok(())
 }
 
+fn is_valid_skill_id(id: &str) -> bool {
+    !id.is_empty()
+        && id != "."
+        && id != ".."
+        && id
+            .bytes()
+            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'_' | b'-'))
+}
+
+pub fn validate_skill_id(id: &str) -> Result<()> {
+    if is_valid_skill_id(id) {
+        Ok(())
+    } else {
+        Err(AppError::InvalidName(id.to_string()))
+    }
+}
+
 /// Pull `description:` from SKILL.md frontmatter, or fall back to the first
 /// non-empty / non-heading line of the body. Empty string if nothing usable.
 fn read_tagline(skill_dir: &Path) -> String {
@@ -191,7 +208,7 @@ pub fn scan_skills() -> Result<Vec<Skill>> {
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || !meta.is_dir() {
+        if !meta.is_dir() || validate_skill_id(&name).is_err() {
             continue;
         }
         let path = entry.path();
@@ -219,15 +236,7 @@ pub fn scan_skills() -> Result<Vec<Skill>> {
 #[tauri::command]
 pub fn import_skill(name: String, tagline: String) -> Result<Skill> {
     let id = name.trim().to_lowercase().replace(' ', "-");
-    if id.is_empty()
-        || id == "."
-        || id == ".."
-        || id.contains('/')
-        || id.contains('\\')
-        || id.contains('\0')
-    {
-        return Err(AppError::InvalidName(name));
-    }
+    validate_skill_id(&id).map_err(|_| AppError::InvalidName(name))?;
     ensure_central()?;
     let central = central_dir().ok_or(AppError::NoHomeDir)?;
     let dir = central.join(&id);
@@ -266,6 +275,7 @@ pub fn import_skill(name: String, tagline: String) -> Result<Skill> {
 
 #[tauri::command]
 pub fn delete_skill(id: String) -> Result<()> {
+    validate_skill_id(&id)?;
     let central = central_dir().ok_or(AppError::NoHomeDir)?;
     let dir = central.join(&id);
     if !dir.exists() {
@@ -297,4 +307,43 @@ pub fn delete_skill(id: String) -> Result<()> {
     }
     fs::remove_dir_all(&dir)?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validate_skill_id;
+
+    #[test]
+    fn validates_simple_skill_ids() {
+        for id in ["csv-cleaner", "skill_loom", "skill.v1", "a0", "x"] {
+            assert!(validate_skill_id(id).is_ok(), "{id} should be valid");
+        }
+    }
+
+    #[test]
+    fn rejects_empty_and_dot_paths() {
+        for id in ["", ".", ".."] {
+            assert!(validate_skill_id(id).is_err(), "{id:?} should be invalid");
+        }
+    }
+
+    #[test]
+    fn rejects_path_traversal_and_separators() {
+        for id in ["../secret", "nested/skill", "nested\\skill", "skill/.."] {
+            assert!(validate_skill_id(id).is_err(), "{id} should be invalid");
+        }
+    }
+
+    #[test]
+    fn rejects_non_simple_directory_names() {
+        for id in [
+            "Skill",
+            "skill name",
+            "skill:name",
+            "skill\0name",
+            "skill@name",
+        ] {
+            assert!(validate_skill_id(id).is_err(), "{id:?} should be invalid");
+        }
+    }
 }

@@ -1,13 +1,17 @@
 use crate::error::{AppError, Result};
 use crate::platforms::{central_dir, platform_by_id, platform_dir};
+use crate::skills::validate_skill_id;
 use std::fs;
 use std::os::unix::fs::symlink;
 
 #[tauri::command]
 pub fn add_route(skill_id: String, platform_id: String) -> Result<()> {
+    validate_skill_id(&skill_id)?;
     let platform = platform_by_id(&platform_id)
         .ok_or_else(|| AppError::PlatformNotFound(platform_id.clone()))?;
-    if platform.is_hub { return Err(AppError::HubRoute); }
+    if platform.is_hub {
+        return Err(AppError::HubRoute);
+    }
 
     let central = central_dir().ok_or(AppError::NoHomeDir)?;
     let source = central.join(&skill_id);
@@ -24,15 +28,23 @@ pub fn add_route(skill_id: String, platform_id: String) -> Result<()> {
         if meta.file_type().is_symlink() {
             // Idempotent: same symlink to our central is fine.
             if let Ok(link) = fs::read_link(&target) {
-                let resolved = if link.is_absolute() { link } else { target.parent().map(|d| d.join(&link)).unwrap_or_default() };
-                if resolved == source { return Ok(()); }
+                let resolved = if link.is_absolute() {
+                    link
+                } else {
+                    target.parent().map(|d| d.join(&link)).unwrap_or_default()
+                };
+                if resolved == source {
+                    return Ok(());
+                }
             }
             return Err(AppError::Conflict(format!(
-                "{}{} is a symlink pointing somewhere else", platform.path, skill_id
+                "{}{} is a symlink pointing somewhere else",
+                platform.path, skill_id
             )));
         }
         return Err(AppError::Conflict(format!(
-            "{}{} already exists as a real file/directory", platform.path, skill_id
+            "{}{} already exists as a real file/directory",
+            platform.path, skill_id
         )));
     }
 
@@ -42,9 +54,12 @@ pub fn add_route(skill_id: String, platform_id: String) -> Result<()> {
 
 #[tauri::command]
 pub fn remove_route(skill_id: String, platform_id: String) -> Result<()> {
+    validate_skill_id(&skill_id)?;
     let platform = platform_by_id(&platform_id)
         .ok_or_else(|| AppError::PlatformNotFound(platform_id.clone()))?;
-    if platform.is_hub { return Err(AppError::HubRoute); }
+    if platform.is_hub {
+        return Err(AppError::HubRoute);
+    }
 
     let central = central_dir().ok_or(AppError::NoHomeDir)?;
     let source = central.join(&skill_id);
@@ -57,14 +72,20 @@ pub fn remove_route(skill_id: String, platform_id: String) -> Result<()> {
 
     if !meta.file_type().is_symlink() {
         return Err(AppError::Conflict(format!(
-            "{}{} is a real file/directory — refusing to delete", platform.path, skill_id
+            "{}{} is a real file/directory — refusing to delete",
+            platform.path, skill_id
         )));
     }
     if let Ok(link) = fs::read_link(&target) {
-        let resolved = if link.is_absolute() { link } else { target.parent().map(|d| d.join(&link)).unwrap_or_default() };
+        let resolved = if link.is_absolute() {
+            link
+        } else {
+            target.parent().map(|d| d.join(&link)).unwrap_or_default()
+        };
         if resolved != source {
             return Err(AppError::Conflict(format!(
-                "{}{} links elsewhere — refusing to delete", platform.path, skill_id
+                "{}{} links elsewhere — refusing to delete",
+                platform.path, skill_id
             )));
         }
     }
