@@ -531,9 +531,12 @@ function Segmented<T extends string>({ value, options, onChange, p }: {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────
-function SettingsPane({ p, platforms, config, setConfig }: {
+function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, onSaveApiKey, onClearApiKey }: {
   p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => void;
+  apiKeyConfigured: boolean; apiKeyPending: boolean;
+  onSaveApiKey: (key: string) => void; onClearApiKey: () => void;
 }) {
+  const [apiKey, setApiKey] = useState('');
   const toggleHidden = (id: string) => {
     const isHidden = config.hiddenPlatforms.includes(id);
     setConfig({
@@ -623,6 +626,33 @@ function SettingsPane({ p, platforms, config, setConfig }: {
               </div>
               <Segmented value={config.view} onChange={(v) => setConfig({ view: v })} p={p}
                 options={[{ value: 'list', label: 'List' }, { value: 'grid', label: 'Grid' }]} />
+            </div>
+          </div>
+        </div>
+
+        {/* AI */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>AI</div>
+          <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
+                <div style={{ fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
+                  {apiKeyConfigured ? 'Stored in macOS Keychain.' : 'No key stored.'}
+                </div>
+              </div>
+              <input value={apiKey} disabled={apiKeyPending} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
+                style={{ width: 220, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 12, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
+              <button onClick={() => { onSaveApiKey(apiKey); setApiKey(''); }} disabled={apiKeyPending || !apiKey.trim()} style={{
+                border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
+                fontSize: 12, cursor: apiKeyPending || !apiKey.trim() ? 'not-allowed' : 'pointer',
+                opacity: apiKeyPending || !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>{apiKeyPending ? 'Saving' : 'Save'}</button>
+              <button onClick={onClearApiKey} disabled={apiKeyPending || !apiKeyConfigured} style={{
+                border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
+                fontSize: 12, cursor: apiKeyPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: apiKeyPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>Clear</button>
             </div>
           </div>
         </div>
@@ -729,6 +759,8 @@ export default function App() {
   const [routePending, setRoutePending] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [importPending, setImportPending] = useState(false);
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [apiKeyPending, setApiKeyPending] = useState(false);
 
   const [active, setActive] = useState('central');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -769,9 +801,10 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [pls, cfg] = await Promise.all([api.listPlatforms(), api.getConfig()]);
+        const [pls, cfg, keyStatus] = await Promise.all([api.listPlatforms(), api.getConfig(), api.getApiKeyStatus()]);
         setPlatforms(pls);
         setConfigState(cfg);
+        setApiKeyConfigured(keyStatus.configured);
         await refreshSkills();
       } catch (e) {
         console.error(e);
@@ -810,6 +843,34 @@ export default function App() {
     catch (e) {
       console.error('updateConfig failed', e);
       showNotice('Settings save failed: ' + e);
+    }
+  }, [showNotice]);
+
+  const saveApiKey = useCallback(async (key: string) => {
+    setApiKeyPending(true);
+    try {
+      const status = await api.setApiKey(key);
+      setApiKeyConfigured(status.configured);
+      showNotice('API key saved to Keychain.', 'info');
+    } catch (e) {
+      console.error('setApiKey failed', e);
+      showNotice('API key save failed: ' + e);
+    } finally {
+      setApiKeyPending(false);
+    }
+  }, [showNotice]);
+
+  const clearApiKey = useCallback(async () => {
+    setApiKeyPending(true);
+    try {
+      const status = await api.clearApiKey();
+      setApiKeyConfigured(status.configured);
+      showNotice('API key cleared.', 'info');
+    } catch (e) {
+      console.error('clearApiKey failed', e);
+      showNotice('API key clear failed: ' + e);
+    } finally {
+      setApiKeyPending(false);
     }
   }, [showNotice]);
 
@@ -939,7 +1000,9 @@ export default function App() {
         visiblePlatforms={visiblePlatforms} totalSkills={skills.length} p={p} />
 
       {active === 'settings' ? (
-        <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig} />
+        <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig}
+          apiKeyConfigured={apiKeyConfigured} apiKeyPending={apiKeyPending}
+          onSaveApiKey={saveApiKey} onClearApiKey={clearApiKey} />
       ) : (
         <>
           <div style={{ width: 360, borderRight: '1px solid ' + p.line, display: 'flex', flexDirection: 'column', background: p.panel, flexShrink: 0 }}>

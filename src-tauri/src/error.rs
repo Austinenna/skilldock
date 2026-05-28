@@ -20,6 +20,8 @@ pub enum AppError {
     Json(#[from] serde_json::Error),
     #[error("watcher: {0}")]
     Watcher(#[from] notify::Error),
+    #[error("keychain: {0}")]
+    Keyring(#[from] keyring::Error),
 }
 
 impl Serialize for AppError {

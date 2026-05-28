@@ -50,3 +50,7 @@ export interface Config {
   view: View;
   hiddenPlatforms: string[];
 }
+
+export interface ApiKeyStatus {
+  configured: boolean;
+}

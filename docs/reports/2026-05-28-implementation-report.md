@@ -189,3 +189,30 @@ Verification:
 - `pnpm build`
 - `cargo check`
 - Result: frontend production build passed; Rust check passed.
+
+## Task 10: Add Key Storage
+
+Commit target: `feat: store ai api key securely`
+
+Changed files:
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `src-tauri/src/ai.rs`
+- `src-tauri/src/error.rs`
+- `src-tauri/src/main.rs`
+- `src/ipc.ts`
+- `src/types.ts`
+- `src/App.tsx`
+
+What changed:
+- Added `keyring` and a backend `ai` module for secure API key storage.
+- Implemented `get_api_key_status`, `set_api_key`, and `clear_api_key`.
+- Returned only configured/not-configured status to the frontend; the secret is never returned to UI.
+- Added Settings UI for saving and clearing the key with pending state and notices.
+
+Verification:
+- `rustfmt src/ai.rs src/error.rs`
+- `cargo check`
+- `cargo test`
+- `pnpm build`
+- Result: Rust check passed; 15 Rust tests passed; frontend production build passed.
