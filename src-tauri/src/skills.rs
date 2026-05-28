@@ -4,7 +4,7 @@ use chrono::{DateTime, Local};
 use humansize::{format_size, BINARY};
 use serde::Serialize;
 use std::fs;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 #[derive(Debug, Clone, Serialize)]
@@ -50,6 +50,34 @@ pub fn validate_skill_id(id: &str) -> Result<()> {
     } else {
         Err(AppError::InvalidName(id.to_string()))
     }
+}
+
+pub fn central_skill_path(id: &str) -> Result<PathBuf> {
+    validate_skill_id(id)?;
+    Ok(central_dir().ok_or(AppError::NoHomeDir)?.join(id))
+}
+
+fn canonical_central_dir() -> Result<PathBuf> {
+    ensure_central()?;
+    Ok(central_dir().ok_or(AppError::NoHomeDir)?.canonicalize()?)
+}
+
+pub fn existing_central_skill_paths(id: &str) -> Result<(PathBuf, PathBuf)> {
+    let path = central_skill_path(id)?;
+    if !path.exists() {
+        return Err(AppError::SkillNotFound(id.to_string()));
+    }
+
+    let canonical_central = canonical_central_dir()?;
+    let canonical_path = path.canonicalize()?;
+    if !canonical_path.starts_with(&canonical_central) {
+        return Err(AppError::Conflict(format!(
+            "skill path for '{}' resolves outside central",
+            id
+        )));
+    }
+
+    Ok((path, canonical_path))
 }
 
 /// Pull `description:` from SKILL.md frontmatter, or fall back to the first
@@ -126,12 +154,51 @@ fn relative_time(modified: SystemTime) -> String {
     }
 }
 
-fn resolve_link_path(link: std::path::PathBuf, target: &Path) -> std::path::PathBuf {
+fn normalize_path(path: &Path) -> PathBuf {
+    let mut normalized = PathBuf::new();
+
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
+            }
+            Component::Normal(_) | Component::RootDir | Component::Prefix(_) => {
+                normalized.push(component.as_os_str());
+            }
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        PathBuf::from(".")
+    } else {
+        normalized
+    }
+}
+
+fn comparable_path(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| normalize_path(path))
+}
+
+fn resolve_link_path(link: PathBuf, target: &Path) -> PathBuf {
     if link.is_absolute() {
         link
     } else {
         target.parent().map(|d| d.join(&link)).unwrap_or(link)
     }
+}
+
+pub fn link_points_to_path(
+    link: PathBuf,
+    target: &Path,
+    source: &Path,
+    canonical_source: &Path,
+) -> bool {
+    let resolved = resolve_link_path(link, target);
+    comparable_path(&resolved) == canonical_source
+        || normalize_path(&resolved) == normalize_path(source)
 }
 
 /// Which platforms currently have a symlink for this skill pointing back to central.
@@ -140,11 +207,9 @@ fn resolve_link_path(link: std::path::PathBuf, target: &Path) -> std::path::Path
 pub fn compute_routes(skill_id: &str) -> (Vec<String>, Vec<RouteConflict>) {
     let mut routes = vec!["central".to_string()];
     let mut conflicts = Vec::new();
-    let Some(central) = central_dir() else {
+    let Ok((source, canonical_source)) = existing_central_skill_paths(skill_id) else {
         return (routes, conflicts);
     };
-    let source = central.join(skill_id);
-    let canonical_source = source.canonicalize().unwrap_or_else(|_| source.clone());
 
     for p in PLATFORMS.iter().filter(|p| !p.is_hub) {
         let Some(platform_root) = expand_path(&p.path) else {
@@ -176,9 +241,7 @@ pub fn compute_routes(skill_id: &str) -> (Vec<String>, Vec<RouteConflict>) {
             });
             continue;
         };
-        let resolved = resolve_link_path(link.clone(), &target);
-        let canonical_resolved = resolved.canonicalize().unwrap_or(resolved);
-        if canonical_resolved == canonical_source {
+        if link_points_to_path(link.clone(), &target, &source, &canonical_source) {
             routes.push(p.id.clone());
         } else {
             conflicts.push(RouteConflict {
@@ -238,8 +301,7 @@ pub fn import_skill(name: String, tagline: String) -> Result<Skill> {
     let id = name.trim().to_lowercase().replace(' ', "-");
     validate_skill_id(&id).map_err(|_| AppError::InvalidName(name))?;
     ensure_central()?;
-    let central = central_dir().ok_or(AppError::NoHomeDir)?;
-    let dir = central.join(&id);
+    let dir = central_skill_path(&id)?;
     if dir.exists() {
         return Err(AppError::Conflict(format!(
             "'{}' already exists in central",
@@ -275,12 +337,7 @@ pub fn import_skill(name: String, tagline: String) -> Result<Skill> {
 
 #[tauri::command]
 pub fn delete_skill(id: String) -> Result<()> {
-    validate_skill_id(&id)?;
-    let central = central_dir().ok_or(AppError::NoHomeDir)?;
-    let dir = central.join(&id);
-    if !dir.exists() {
-        return Err(AppError::SkillNotFound(id));
-    }
+    let (dir, canonical_dir) = existing_central_skill_paths(&id)?;
     // Clean up every platform symlink that points to this central skill, but
     // refuse to touch anything that's not a symlink to *our* central path.
     for p in PLATFORMS.iter().filter(|p| !p.is_hub) {
@@ -295,12 +352,7 @@ pub fn delete_skill(id: String) -> Result<()> {
             continue;
         }
         if let Ok(link) = fs::read_link(&target) {
-            let resolved = if link.is_absolute() {
-                link
-            } else {
-                target.parent().map(|d| d.join(&link)).unwrap_or_default()
-            };
-            if resolved == dir {
+            if link_points_to_path(link, &target, &dir, &canonical_dir) {
                 let _ = fs::remove_file(&target);
             }
         }
@@ -311,7 +363,8 @@ pub fn delete_skill(id: String) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::validate_skill_id;
+    use super::{link_points_to_path, validate_skill_id};
+    use std::path::PathBuf;
 
     #[test]
     fn validates_simple_skill_ids() {
@@ -345,5 +398,20 @@ mod tests {
         ] {
             assert!(validate_skill_id(id).is_err(), "{id:?} should be invalid");
         }
+    }
+
+    #[test]
+    fn compares_links_with_missing_normalized_components() {
+        let source = PathBuf::from("/tmp/skillloom-central/example");
+        let canonical_source = source.clone();
+        let target = PathBuf::from("/tmp/skillloom-platform/example");
+        let link = PathBuf::from("/tmp/skillloom-central/missing/../example");
+
+        assert!(link_points_to_path(
+            link,
+            &target,
+            &source,
+            &canonical_source
+        ));
     }
 }

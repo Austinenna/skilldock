@@ -1,8 +1,16 @@
 use crate::error::{AppError, Result};
-use crate::platforms::{central_dir, platform_by_id, platform_dir};
-use crate::skills::validate_skill_id;
+use crate::platforms::{platform_by_id, platform_dir};
+use crate::skills::{existing_central_skill_paths, link_points_to_path, validate_skill_id};
 use std::fs;
 use std::os::unix::fs::symlink;
+use std::path::PathBuf;
+
+fn platform_skill_paths(platform_id: &str, skill_id: &str) -> Result<(PathBuf, PathBuf)> {
+    validate_skill_id(skill_id)?;
+    let platform_root = platform_dir(platform_id).ok_or(AppError::NoHomeDir)?;
+    let target = platform_root.join(skill_id);
+    Ok((platform_root, target))
+}
 
 #[tauri::command]
 pub fn add_route(skill_id: String, platform_id: String) -> Result<()> {
@@ -13,27 +21,17 @@ pub fn add_route(skill_id: String, platform_id: String) -> Result<()> {
         return Err(AppError::HubRoute);
     }
 
-    let central = central_dir().ok_or(AppError::NoHomeDir)?;
-    let source = central.join(&skill_id);
-    if !source.exists() {
-        return Err(AppError::SkillNotFound(skill_id));
-    }
+    let (source, canonical_source) = existing_central_skill_paths(&skill_id)?;
 
-    let platform_root = platform_dir(&platform_id).ok_or(AppError::NoHomeDir)?;
+    let (platform_root, target) = platform_skill_paths(&platform_id, &skill_id)?;
     fs::create_dir_all(&platform_root)?;
-    let target = platform_root.join(&skill_id);
 
     // If something already exists at the target, decide carefully.
     if let Ok(meta) = fs::symlink_metadata(&target) {
         if meta.file_type().is_symlink() {
             // Idempotent: same symlink to our central is fine.
             if let Ok(link) = fs::read_link(&target) {
-                let resolved = if link.is_absolute() {
-                    link
-                } else {
-                    target.parent().map(|d| d.join(&link)).unwrap_or_default()
-                };
-                if resolved == source {
+                if link_points_to_path(link, &target, &source, &canonical_source) {
                     return Ok(());
                 }
             }
@@ -61,10 +59,8 @@ pub fn remove_route(skill_id: String, platform_id: String) -> Result<()> {
         return Err(AppError::HubRoute);
     }
 
-    let central = central_dir().ok_or(AppError::NoHomeDir)?;
-    let source = central.join(&skill_id);
-    let platform_root = platform_dir(&platform_id).ok_or(AppError::NoHomeDir)?;
-    let target = platform_root.join(&skill_id);
+    let (source, canonical_source) = existing_central_skill_paths(&skill_id)?;
+    let (_, target) = platform_skill_paths(&platform_id, &skill_id)?;
 
     let Ok(meta) = fs::symlink_metadata(&target) else {
         return Ok(()); // Nothing to do.
@@ -77,12 +73,7 @@ pub fn remove_route(skill_id: String, platform_id: String) -> Result<()> {
         )));
     }
     if let Ok(link) = fs::read_link(&target) {
-        let resolved = if link.is_absolute() {
-            link
-        } else {
-            target.parent().map(|d| d.join(&link)).unwrap_or_default()
-        };
-        if resolved != source {
+        if !link_points_to_path(link, &target, &source, &canonical_source) {
             return Err(AppError::Conflict(format!(
                 "{}{} links elsewhere — refusing to delete",
                 platform.path, skill_id
