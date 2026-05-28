@@ -25,6 +25,20 @@ export interface Skill {
   routeConflicts: RouteConflict[];
 }
 
+export interface SkillFile {
+  name: string;
+  kind: string;
+  size: string;
+  modified: string;
+}
+
+export interface SkillDetail {
+  skill: Skill;
+  skillMd: string;
+  sourcePath: string;
+  files: SkillFile[];
+}
+
 export interface RouteConflict {
   platformId: string;
   message: string;

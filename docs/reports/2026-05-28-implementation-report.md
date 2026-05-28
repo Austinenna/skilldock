@@ -83,3 +83,28 @@ Verification:
 - `cargo check`
 - `pnpm build`
 - Result: 15 Rust tests passed; Rust check passed; frontend production build passed.
+
+## Task 5: Add Skill Detail Command
+
+Commit target: `feat: show skill details`
+
+Changed files:
+- `src-tauri/src/skills.rs`
+- `src-tauri/src/main.rs`
+- `src/ipc.ts`
+- `src/types.ts`
+- `src/App.tsx`
+
+What changed:
+- Added `SkillDetail` and `SkillFile` backend response types.
+- Added `get_skill_detail(id)` Tauri command with existing skill id validation and central path containment checks.
+- Returned the parsed `Skill`, raw `SKILL.md` content, source path, and direct file entries with kind, size, and modified time.
+- Added frontend IPC and TypeScript types for skill details.
+- Loaded detail data when a skill is selected and replaced the placeholder Files section with the real source path and file table.
+
+Verification:
+- `rustfmt src/skills.rs src/main.rs`
+- `cargo test`
+- `cargo check`
+- `pnpm build`
+- Result: 15 Rust tests passed; Rust check passed; frontend production build passed.

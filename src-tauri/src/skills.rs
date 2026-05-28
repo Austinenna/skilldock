@@ -30,6 +30,24 @@ pub struct Skill {
     pub route_conflicts: Vec<RouteConflict>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillFile {
+    pub name: String,
+    pub kind: String,
+    pub size: String,
+    pub modified: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillDetail {
+    pub skill: Skill,
+    pub skill_md: String,
+    pub source_path: String,
+    pub files: Vec<SkillFile>,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct SkillMetadata {
     title: String,
@@ -240,6 +258,45 @@ fn dir_stats(dir: &Path) -> (usize, u64) {
     (count, total)
 }
 
+fn file_kind(meta: &fs::Metadata) -> String {
+    if meta.is_dir() {
+        "directory".into()
+    } else if meta.is_file() {
+        "file".into()
+    } else {
+        "other".into()
+    }
+}
+
+fn list_skill_files(dir: &Path) -> Vec<SkillFile> {
+    let Ok(entries) = fs::read_dir(dir) else {
+        return Vec::new();
+    };
+
+    let mut files: Vec<SkillFile> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let meta = entry.metadata().ok()?;
+            let name = entry.file_name().to_string_lossy().to_string();
+            let modified = meta.modified().ok().map(relative_time).unwrap_or_default();
+            let size = if meta.is_file() {
+                format_size(meta.len(), BINARY)
+            } else {
+                String::new()
+            };
+
+            Some(SkillFile {
+                name,
+                kind: file_kind(&meta),
+                size,
+                modified,
+            })
+        })
+        .collect();
+    files.sort_by(|a, b| a.name.cmp(&b.name));
+    files
+}
+
 fn relative_time(modified: SystemTime) -> String {
     let dt: DateTime<Local> = modified.into();
     let now = Local::now();
@@ -381,26 +438,52 @@ pub fn scan_skills() -> Result<Vec<Skill>> {
             continue;
         }
         let path = entry.path();
-        let (files, total_size) = dir_stats(&path);
-        let updated = meta.modified().ok().map(relative_time).unwrap_or_default();
-        let (routes, route_conflicts) = compute_routes(&name);
-        let metadata = read_skill_metadata(&path, &name);
-        skills.push(Skill {
-            id: name.clone(),
-            title: metadata.title,
-            tagline: metadata.tagline,
-            version: metadata.version,
-            size: format_size(total_size, BINARY),
-            files,
-            updated,
-            tags: metadata.tags,
-            routes,
-            route_conflicts,
-        });
+        skills.push(build_skill(&name, &path, &meta));
     }
 
     skills.sort_by(|a, b| a.title.cmp(&b.title));
     Ok(skills)
+}
+
+fn build_skill(id: &str, path: &Path, meta: &fs::Metadata) -> Skill {
+    let (files, total_size) = dir_stats(path);
+    let updated = meta.modified().ok().map(relative_time).unwrap_or_default();
+    let (routes, route_conflicts) = compute_routes(id);
+    let metadata = read_skill_metadata(path, id);
+
+    Skill {
+        id: id.to_string(),
+        title: metadata.title,
+        tagline: metadata.tagline,
+        version: metadata.version,
+        size: format_size(total_size, BINARY),
+        files,
+        updated,
+        tags: metadata.tags,
+        routes,
+        route_conflicts,
+    }
+}
+
+#[tauri::command]
+pub fn get_skill_detail(id: String) -> Result<SkillDetail> {
+    let (dir, _) = existing_central_skill_paths(&id)?;
+    let meta = fs::metadata(&dir)?;
+    if !meta.is_dir() {
+        return Err(AppError::Conflict(format!("'{}' is not a directory", id)));
+    }
+
+    let skill = build_skill(&id, &dir, &meta);
+    let skill_md = fs::read_to_string(dir.join("SKILL.md")).unwrap_or_default();
+    let source_path = dir.display().to_string();
+    let files = list_skill_files(&dir);
+
+    Ok(SkillDetail {
+        skill,
+        skill_md,
+        source_path,
+        files,
+    })
 }
 
 #[tauri::command]

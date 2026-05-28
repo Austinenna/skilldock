@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'reac
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
 import { PALETTES, PALETTE_OPTIONS, PALETTE_KEYS, type Palette } from './palettes';
-import type { Config, PaletteKey, Platform, Skill } from './types';
+import type { Config, PaletteKey, Platform, Skill, SkillDetail } from './types';
 
 const FONT_SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Inter", sans-serif';
 const FONT_DISPLAY_WARM = '"Instrument Serif", Georgia, serif';
@@ -302,8 +302,9 @@ function Toggle({ on, disabled, blocked, onClick, p }: {
   );
 }
 
-function Detail({ skill, toggleRoute, onDelete, visiblePlatforms, p, paletteKey }: {
-  skill: Skill; toggleRoute: (pid: string) => void; onDelete: () => void;
+function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDelete, visiblePlatforms, p, paletteKey }: {
+  skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
+  toggleRoute: (pid: string) => void; onDelete: () => void;
   visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey;
 }) {
   const [descOpen, setDescOpen] = useState(true);
@@ -314,6 +315,8 @@ function Detail({ skill, toggleRoute, onDelete, visiblePlatforms, p, paletteKey 
   const titleWeight = paletteKey === 'warm' ? 400 : 600;
 
   useEffect(() => { setConfirmDel(false); }, [skill.id]);
+
+  const fileBadge = detail ? String(detail.files.length) : (detailLoading ? 'loading' : String(skill.files));
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: p.panel }}>
@@ -421,11 +424,40 @@ function Detail({ skill, toggleRoute, onDelete, visiblePlatforms, p, paletteKey 
         </div>
       </Section>
 
-      <Section title="Files" badge={String(skill.files)} p={p} open={filesOpen} setOpen={setFilesOpen}>
+      <Section title="Files" badge={fileBadge} p={p} open={filesOpen} setOpen={setFilesOpen}>
         <div style={{ padding: '4px 28px 24px', fontFamily: MONO, fontSize: 12, color: p.text2 }}>
-          {skill.files === 0
-            ? <div style={{ color: p.text3 }}>Empty skill directory.</div>
-            : <div style={{ color: p.text3 }}>{skill.files} file(s) in this skill — file listing UI coming in v2.</div>}
+          {detailLoading ? (
+            <div style={{ color: p.text3 }}>Loading file details…</div>
+          ) : detailError ? (
+            <div style={{ color: p.danger }}>{detailError}</div>
+          ) : detail ? (
+            <>
+              <div style={{ color: p.text3, marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {detail.sourcePath}
+              </div>
+              {detail.files.length === 0 ? (
+                <div style={{ color: p.text3 }}>Empty skill directory.</div>
+              ) : (
+                <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
+                  {detail.files.map((file, index) => (
+                    <div key={file.name} style={{
+                      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 78px 70px 92px',
+                      gap: 10, alignItems: 'center', padding: '8px 10px',
+                      borderBottom: index < detail.files.length - 1 ? '1px solid ' + p.lineSoft : 'none',
+                      background: index % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)',
+                    }}>
+                      <div title={file.name} style={{ color: p.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
+                      <div style={{ color: p.text3 }}>{file.kind}</div>
+                      <div style={{ color: p.text3, textAlign: 'right' }}>{file.size || '--'}</div>
+                      <div style={{ color: p.text3, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.modified || '--'}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          ) : (
+            <div style={{ color: p.text3 }}>File details unavailable.</div>
+          )}
         </div>
       </Section>
     </div>
@@ -641,6 +673,9 @@ export default function App() {
 
   const [platforms, setPlatforms] = useState<Platform[]>([]);
   const [skills, setSkills] = useState<Skill[]>([]);
+  const [details, setDetails] = useState<Record<string, SkillDetail>>({});
+  const [detailLoading, setDetailLoading] = useState(false);
+  const [detailError, setDetailError] = useState<string | null>(null);
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -700,6 +735,40 @@ export default function App() {
   }), [active, q, skills]);
 
   const selected = filtered.find((s) => s.id === selectedId) || filtered[0] || null;
+  const selectedDetail = selected ? details[selected.id] : undefined;
+
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+    if (details[id]) {
+      setDetailLoading(false);
+      setDetailError(null);
+      return;
+    }
+
+    let cancelled = false;
+    setDetailLoading(true);
+    setDetailError(null);
+    api.getSkillDetail(id)
+      .then((detail) => {
+        if (cancelled) return;
+        setDetails((current) => ({ ...current, [id]: detail }));
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        console.error('getSkillDetail failed', e);
+        setDetailError(String(e));
+      })
+      .finally(() => {
+        if (!cancelled) setDetailLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selected?.id, details]);
 
   const toggleRoute = async (pid: string) => {
     if (!selected) return;
@@ -794,7 +863,8 @@ export default function App() {
           {selected ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
-              <Detail skill={selected} toggleRoute={toggleRoute} onDelete={deleteSelected}
+              <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
+                toggleRoute={toggleRoute} onDelete={deleteSelected}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />
             </div>
           ) : (

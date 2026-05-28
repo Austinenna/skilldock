@@ -1,9 +1,10 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Platform, Skill, Config } from './types';
+import type { Platform, Skill, Config, SkillDetail } from './types';
 
 export const api = {
   listPlatforms: () => invoke<Platform[]>('list_platforms'),
   scanSkills: () => invoke<Skill[]>('scan_skills'),
+  getSkillDetail: (id: string) => invoke<SkillDetail>('get_skill_detail', { id }),
   addRoute: (skillId: string, platformId: string) =>
     invoke<void>('add_route', { skillId, platformId }),
   removeRoute: (skillId: string, platformId: string) =>

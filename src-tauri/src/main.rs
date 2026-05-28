@@ -11,6 +11,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             platforms::list_platforms,
             skills::scan_skills,
+            skills::get_skill_detail,
             skills::import_skill,
             skills::delete_skill,
             routes::add_route,
