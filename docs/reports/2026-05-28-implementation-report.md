@@ -108,3 +108,21 @@ Verification:
 - `cargo check`
 - `pnpm build`
 - Result: 15 Rust tests passed; Rust check passed; frontend production build passed.
+
+## Task 6: Replace Alert-Only Errors
+
+Commit target: `feat: improve app error feedback`
+
+Changed files:
+- `src/App.tsx`
+
+What changed:
+- Added a small app-level notice/toast component.
+- Replaced blocking `alert(...)` calls with non-blocking notices.
+- Added operation-specific messages for scan, route add/remove, import, delete, config save, and route conflicts.
+- Kept boot failure as the existing full-screen startup error.
+
+Verification:
+- `rg -n "alert\\(" src/App.tsx`
+- `pnpm build`
+- Result: no remaining `alert(...)` calls; frontend production build passed.

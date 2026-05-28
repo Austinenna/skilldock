@@ -19,6 +19,14 @@ const PLATFORM_ICONS: Record<string, string> = {
   qclaw: 'q', easyclaw: 'E', workbuddy: 'W',
 };
 
+type NoticeTone = 'error' | 'info';
+
+interface AppNotice {
+  id: number;
+  tone: NoticeTone;
+  message: string;
+}
+
 // ─── small helpers ────────────────────────────────────────────────
 function useFontLink() {
   useEffect(() => {
@@ -57,6 +65,33 @@ function WindowDragStrip() {
         background: 'transparent',
       }}
     />
+  );
+}
+
+function NoticeToast({ notice, onClose, p }: {
+  notice: AppNotice | null; onClose: () => void; p: Palette;
+}) {
+  if (!notice) return null;
+  const isError = notice.tone === 'error';
+  return (
+    <div style={{
+      position: 'absolute', top: 38, right: 18, zIndex: 40, maxWidth: 420,
+      display: 'flex', alignItems: 'flex-start', gap: 10,
+      padding: '10px 12px', borderRadius: 8,
+      background: p.panel, border: '1px solid ' + (isError ? p.danger : p.line),
+      boxShadow: '0 12px 40px rgba(0,0,0,0.16)', color: p.text,
+      fontSize: 12, lineHeight: 1.45,
+    }}>
+      <div style={{
+        width: 8, height: 8, borderRadius: 4, marginTop: 5,
+        background: isError ? p.danger : p.accent, flexShrink: 0,
+      }} />
+      <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{notice.message}</div>
+      <button onClick={onClose} aria-label="Dismiss notice" style={{
+        border: 0, background: 'transparent', color: p.text3, cursor: 'pointer',
+        fontSize: 13, lineHeight: 1, padding: 2, fontFamily: FONT_SANS,
+      }}>×</button>
+    </div>
   );
 }
 
@@ -302,9 +337,9 @@ function Toggle({ on, disabled, blocked, onClick, p }: {
   );
 }
 
-function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDelete, visiblePlatforms, p, paletteKey }: {
+function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDelete, onNotice, visiblePlatforms, p, paletteKey }: {
   skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
-  toggleRoute: (pid: string) => void; onDelete: () => void;
+  toggleRoute: (pid: string) => void; onDelete: () => void; onNotice: (message: string, tone?: NoticeTone) => void;
   visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey;
 }) {
   const [descOpen, setDescOpen] = useState(true);
@@ -384,7 +419,7 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
             const handleRouteClick = () => {
               if (pl.isHub) return;
               if (conflict) {
-                alert(conflict.message);
+                onNotice(conflict.message, 'error');
                 return;
               }
               toggleRoute(pl.id);
@@ -679,6 +714,7 @@ export default function App() {
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<AppNotice | null>(null);
 
   const [active, setActive] = useState('central');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -687,10 +723,23 @@ export default function App() {
 
   const p = PALETTES[config.palette];
 
+  const showNotice = useCallback((message: string, tone: NoticeTone = 'error') => {
+    setNotice({ id: Date.now(), tone, message });
+  }, []);
+
+  useEffect(() => {
+    if (!notice) return;
+    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    return () => window.clearTimeout(timeout);
+  }, [notice]);
+
   const refreshSkills = useCallback(async () => {
     try { setSkills(await api.scanSkills()); }
-    catch (e) { console.error('scanSkills failed', e); alert('Failed to scan skills: ' + e); }
-  }, []);
+    catch (e) {
+      console.error('scanSkills failed', e);
+      showNotice('Scan failed: ' + e);
+    }
+  }, [showNotice]);
 
   // Boot
   useEffect(() => {
@@ -712,8 +761,11 @@ export default function App() {
   const setConfig = useCallback(async (patch: Partial<Config>) => {
     setConfigState((c) => ({ ...c, ...patch }));
     try { const next = await api.updateConfig(patch); setConfigState(next); }
-    catch (e) { console.error('updateConfig failed', e); }
-  }, []);
+    catch (e) {
+      console.error('updateConfig failed', e);
+      showNotice('Settings save failed: ' + e);
+    }
+  }, [showNotice]);
 
   const visiblePlatforms = useMemo(
     () => platforms.filter((pl) => !config.hiddenPlatforms.includes(pl.id)),
@@ -777,13 +829,15 @@ export default function App() {
       if (on) await api.removeRoute(selected.id, pid);
       else await api.addRoute(selected.id, pid);
       await refreshSkills();
-    } catch (e) { alert(String(e)); }
+    } catch (e) {
+      showNotice((on ? 'Remove route failed: ' : 'Add route failed: ') + e);
+    }
   };
 
   const deleteSelected = async () => {
     if (!selected) return;
     try { await api.deleteSkill(selected.id); await refreshSkills(); }
-    catch (e) { alert(String(e)); }
+    catch (e) { showNotice('Delete failed: ' + e); }
   };
 
   const addSkill = async (name: string, tagline: string) => {
@@ -793,7 +847,7 @@ export default function App() {
       setSelectedId(sk.id);
       setActive('central');
       setImportOpen(false);
-    } catch (e) { alert(String(e)); }
+    } catch (e) { showNotice('Import failed: ' + e); }
   };
 
   const activeTitle = active === 'central' ? 'Central Skills' :
@@ -826,6 +880,7 @@ export default function App() {
       display: 'flex', overflow: 'hidden',
     }}>
       <WindowDragStrip />
+      <NoticeToast notice={notice} onClose={() => setNotice(null)} p={p} />
       <Sidebar active={active} setActive={setActive} counts={counts}
         visiblePlatforms={visiblePlatforms} totalSkills={skills.length} p={p} />
 
@@ -864,7 +919,7 @@ export default function App() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
               <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
-                toggleRoute={toggleRoute} onDelete={deleteSelected}
+                toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />
             </div>
           ) : (
