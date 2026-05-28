@@ -22,6 +22,12 @@ export interface Skill {
   updated: string;
   tags: string[];
   routes: string[];
+  routeConflicts: RouteConflict[];
+}
+
+export interface RouteConflict {
+  platformId: string;
+  message: string;
 }
 
 export interface Config {

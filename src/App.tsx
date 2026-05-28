@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
 import { PALETTES, PALETTE_OPTIONS, PALETTE_KEYS, type Palette } from './palettes';
 import type { Config, PaletteKey, Platform, Skill } from './types';
@@ -28,6 +29,35 @@ function useFontLink() {
     l.href = 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap';
     document.head.appendChild(l);
   }, []);
+}
+
+function startWindowDrag(event: MouseEvent<HTMLElement>) {
+  if (event.button !== 0) return;
+  try {
+    getCurrentWindow().startDragging().catch((error) => {
+      console.error('Failed to start window drag', error);
+    });
+  } catch (error) {
+    console.error('Failed to start window drag', error);
+  }
+}
+
+function WindowDragStrip() {
+  return (
+    <div
+      data-tauri-drag-region
+      onMouseDown={startWindowDrag}
+      style={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 32,
+        zIndex: 20,
+        background: 'transparent',
+      }}
+    />
+  );
 }
 
 // ─── Sidebar ──────────────────────────────────────────────────────
@@ -246,13 +276,21 @@ function Section({ title, badge, open = true, setOpen, children, action, p }: {
   );
 }
 
-function Toggle({ on, disabled, onClick, p }: { on: boolean; disabled?: boolean; onClick: () => void; p: Palette }) {
+function Toggle({ on, disabled, blocked, onClick, p }: {
+  on: boolean; disabled?: boolean; blocked?: boolean; onClick: () => void; p: Palette;
+}) {
+  const unavailable = disabled || blocked;
   return (
-    <button onClick={onClick} disabled={disabled}
+    <button
+      type="button"
+      onClick={(event) => { event.stopPropagation(); onClick(); }}
+      disabled={disabled}
+      aria-pressed={on}
+      aria-disabled={unavailable}
       style={{
         width: 34, height: 20, borderRadius: 10, border: 0, padding: 0,
         backgroundColor: on ? p.hub : 'rgba(120,120,128,0.32)',
-        opacity: disabled ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: unavailable ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
         position: 'relative', transition: 'background-color 0.15s',
       }}>
       <div style={{
@@ -339,21 +377,44 @@ function Detail({ skill, toggleRoute, onDelete, visiblePlatforms, p, paletteKey 
         <div style={{ padding: '4px 28px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}>
           {visiblePlatforms.map((pl) => {
             const on = skill.routes.includes(pl.id);
+            const conflict = skill.routeConflicts.find((item) => item.platformId === pl.id);
+            const handleRouteClick = () => {
+              if (pl.isHub) return;
+              if (conflict) {
+                alert(conflict.message);
+                return;
+              }
+              toggleRoute(pl.id);
+            };
             return (
-              <div key={pl.id} style={{
+              <div
+                key={pl.id}
+                onClick={handleRouteClick}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    handleRouteClick();
+                  }
+                }}
+                role={pl.isHub ? undefined : 'button'}
+                tabIndex={pl.isHub ? undefined : 0}
+                title={conflict?.message}
+                style={{
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '10px 12px', border: '1px solid ' + p.line, borderRadius: 8,
                 background: on ? 'transparent' : 'rgba(0,0,0,0.015)',
+                cursor: pl.isHub ? 'default' : 'pointer',
               }}>
                 <div style={{ width: 24, height: 24, borderRadius: 6, background: pl.isHub ? p.hubSoft : 'rgba(0,0,0,0.06)', color: p.text2, fontSize: 12, fontWeight: 700, display: 'grid', placeItems: 'center', fontFamily: MONO, flexShrink: 0 }}>{pl.short[0]}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, color: p.text, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
                     {pl.name}
                     {pl.isHub && <span style={{ fontSize: 9, color: p.hubText, background: p.hubSoft, padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>HUB</span>}
+                    {conflict && <span style={{ fontSize: 9, color: p.danger, background: 'rgba(255,59,48,0.1)', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>CONFLICT</span>}
                   </div>
-                  <div style={{ fontSize: 11, color: p.text3, fontFamily: MONO, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.path}{skill.title}</div>
+                  <div style={{ fontSize: 11, color: conflict ? p.danger : p.text3, fontFamily: MONO, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.path}{skill.id}</div>
                 </div>
-                <Toggle on={on} disabled={pl.isHub} onClick={() => !pl.isHub && toggleRoute(pl.id)} p={p} />
+                <Toggle on={on} disabled={pl.isHub} blocked={!!conflict} onClick={handleRouteClick} p={p} />
               </div>
             );
           })}
@@ -695,6 +756,7 @@ export default function App() {
       background: p.bg, fontFamily: FONT_SANS, color: p.text,
       display: 'flex', overflow: 'hidden',
     }}>
+      <WindowDragStrip />
       <Sidebar active={active} setActive={setActive} counts={counts}
         visiblePlatforms={visiblePlatforms} totalSkills={skills.length} p={p} />
 
