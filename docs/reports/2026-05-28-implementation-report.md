@@ -40,3 +40,23 @@ Verification:
 - `cargo test`
 - `cargo check`
 - Result: 5 Rust tests passed; Rust check passed.
+
+## Task 3: Add Route Behavior Tests
+
+Commit target: `test: cover route symlink behavior`
+
+Changed files:
+- `src-tauri/src/routes.rs`
+
+What changed:
+- Extracted route add/remove core logic into helpers that accept explicit central and platform root directories.
+- Kept Tauri commands wired through the configured platform list while making filesystem behavior directly testable.
+- Added tests for idempotent add when a symlink already points to central.
+- Added tests for add conflicts when the target is a real directory or a symlink to another location.
+- Added tests for remove refusing to delete real directories and deleting symlinks that point to central.
+
+Verification:
+- `rustfmt src/routes.rs`
+- `cargo test`
+- `cargo check`
+- Result: 10 Rust tests passed; Rust check passed.
