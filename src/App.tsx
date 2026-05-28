@@ -344,8 +344,9 @@ function Toggle({ on, disabled, blocked, onClick, p }: {
   );
 }
 
-function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDelete, onNotice, routePending, deletePending, visiblePlatforms, p, paletteKey }: {
+function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoading, summaryError, onRegenerateSummary, toggleRoute, onDelete, onNotice, routePending, deletePending, visiblePlatforms, p, paletteKey }: {
   skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
+  summary?: string; summaryLoading: boolean; summaryError: string | null; onRegenerateSummary: () => void;
   toggleRoute: (pid: string) => void; onDelete: () => void; onNotice: (message: string, tone?: NoticeTone) => void;
   routePending: string | null; deletePending: boolean;
   visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey;
@@ -396,7 +397,15 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
         </div>
       </div>
 
-      <Section title="AI Summary" badge="v2 — backend coming soon" p={p} open={descOpen} setOpen={setDescOpen}>
+      <Section title="AI Summary" badge={summaryLoading ? 'loading' : (summary && summary !== skill.tagline ? 'ready' : 'fallback')} p={p} open={descOpen} setOpen={setDescOpen}
+        action={(
+          <button onClick={(event) => { event.stopPropagation(); onRegenerateSummary(); }} disabled={summaryLoading}
+            style={{
+              border: '1px solid ' + p.line, background: p.panel, color: p.text2,
+              borderRadius: 6, padding: '4px 9px', fontSize: 11, cursor: summaryLoading ? 'not-allowed' : 'pointer',
+              opacity: summaryLoading ? 0.6 : 1, fontFamily: FONT_SANS,
+            }}>{summaryLoading ? 'Generating' : 'Regenerate'}</button>
+        )}>
         <div style={{ padding: '4px 28px 20px' }}>
           <div style={{
             fontSize: 13, lineHeight: 1.6, color: p.text3,
@@ -407,7 +416,11 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
             fontFamily: paletteKey === 'warm' ? FONT_DISPLAY_WARM : FONT_SANS,
             ...(paletteKey === 'warm' ? { fontSize: 16 } : {}),
           }}>
-            AI 摘要会在 v2 接入 —— 这里会显示一段基于 SKILL.md 自动生成的简介，说明这个 skill 解决什么问题、什么场景下用、有什么前置依赖。
+            {summaryLoading
+              ? 'Generating summary…'
+              : summaryError
+                ? summaryError
+                : summary || skill.tagline || 'No summary available.'}
           </div>
           {skill.tags.length > 0 && (
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
@@ -751,6 +764,9 @@ export default function App() {
   const [details, setDetails] = useState<Record<string, SkillDetail>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
+  const [summaries, setSummaries] = useState<Record<string, string>>({});
+  const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
+  const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({});
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -895,6 +911,29 @@ export default function App() {
 
   const selected = filtered.find((s) => s.id === selectedId) || filtered[0] || null;
   const selectedDetail = selected ? details[selected.id] : undefined;
+  const selectedSummary = selected ? summaries[selected.id] : undefined;
+  const selectedSummaryLoading = selected ? summaryPendingId === selected.id : false;
+  const selectedSummaryError = selected ? summaryErrors[selected.id] ?? null : null;
+
+  const loadSummary = useCallback(async (id: string, force = false) => {
+    setSummaryPendingId(id);
+    setSummaryErrors((current) => {
+      if (!(id in current)) return current;
+      const next = { ...current };
+      delete next[id];
+      return next;
+    });
+    try {
+      const summary = await api.generateSummary(id, force);
+      setSummaries((current) => ({ ...current, [id]: summary }));
+    } catch (e) {
+      console.error('generateSummary failed', e);
+      setSummaryErrors((current) => ({ ...current, [id]: String(e) }));
+      if (force) showNotice('Summary generation failed: ' + e);
+    } finally {
+      setSummaryPendingId((current) => current === id ? null : current);
+    }
+  }, [showNotice]);
 
   useEffect(() => {
     const id = selected?.id;
@@ -928,6 +967,12 @@ export default function App() {
 
     return () => { cancelled = true; };
   }, [selected?.id, details]);
+
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || summaries[id] != null) return;
+    loadSummary(id, false);
+  }, [selected?.id, summaries, loadSummary]);
 
   const toggleRoute = async (pid: string) => {
     if (!selected || routePending) return;
@@ -1038,6 +1083,8 @@ export default function App() {
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
               <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
+                summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
+                onRegenerateSummary={() => loadSummary(selected.id, true)}
                 toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
                 routePending={routePending} deletePending={deletePending}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />

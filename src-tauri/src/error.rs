@@ -22,6 +22,10 @@ pub enum AppError {
     Watcher(#[from] notify::Error),
     #[error("keychain: {0}")]
     Keyring(#[from] keyring::Error),
+    #[error("database: {0}")]
+    Database(String),
+    #[error("ai: {0}")]
+    Ai(String),
 }
 
 impl Serialize for AppError {

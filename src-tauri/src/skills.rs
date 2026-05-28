@@ -1,3 +1,4 @@
+use crate::ai;
 use crate::error::{AppError, Result};
 use crate::platforms::{central_dir, expand_path, PLATFORMS};
 use chrono::{DateTime, Local};
@@ -526,8 +527,9 @@ pub fn import_skill(name: String, tagline: String) -> Result<Skill> {
 }
 
 #[tauri::command]
-pub fn delete_skill(id: String) -> Result<()> {
+pub fn delete_skill(app: tauri::AppHandle, id: String) -> Result<()> {
     let (dir, canonical_dir) = existing_central_skill_paths(&id)?;
+    ai::delete_cached_summaries(&app, &id)?;
     // Clean up every platform symlink that points to this central skill, but
     // refuse to touch anything that's not a symlink to *our* central path.
     for p in PLATFORMS.iter().filter(|p| !p.is_hub) {

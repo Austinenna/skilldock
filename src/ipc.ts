@@ -18,4 +18,6 @@ export const api = {
   getApiKeyStatus: () => invoke<ApiKeyStatus>('get_api_key_status'),
   setApiKey: (key: string) => invoke<ApiKeyStatus>('set_api_key', { key }),
   clearApiKey: () => invoke<ApiKeyStatus>('clear_api_key'),
+  generateSummary: (skillId: string, force = false) =>
+    invoke<string>('generate_summary', { skillId, force }),
 };

@@ -216,3 +216,34 @@ Verification:
 - `cargo test`
 - `pnpm build`
 - Result: Rust check passed; 15 Rust tests passed; frontend production build passed.
+
+## Task 11: Generate And Cache Summaries
+
+Commit target: `feat: generate cached skill summaries`
+
+Changed files:
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `src-tauri/src/ai.rs`
+- `src-tauri/src/error.rs`
+- `src-tauri/src/main.rs`
+- `src-tauri/src/skills.rs`
+- `src/ipc.ts`
+- `src/App.tsx`
+
+What changed:
+- Added `generate_summary(skill_id, force)` as a Tauri command and wired it through the frontend IPC layer.
+- Added SHA-256 content hashing for `SKILL.md` so cached summaries invalidate when skill content changes.
+- Added a local SQLite-backed `ai_summary` cache using the system SQLite library, avoiding any new database crate download.
+- Kept API generation optional: when no API key is configured, the command falls back to the parsed skill description.
+- If a key is configured later, the backend can request an Anthropic summary through macOS `curl`; this was not exercised during this step.
+- Cleans cached summaries when a skill is deleted.
+- Replaced the placeholder AI summary panel with loading, error, fallback, cached summary, and regenerate states.
+
+Verification:
+- `rustfmt src-tauri/src/ai.rs src-tauri/src/error.rs src-tauri/src/skills.rs`
+- `cargo check --offline`
+- `cargo test --offline`
+- `pnpm build`
+- Result: offline Rust check passed; 15 Rust tests passed; frontend production build passed.
+- Note: live API generation and dependency downloads were intentionally skipped.
