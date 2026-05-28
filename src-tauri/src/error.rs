@@ -18,6 +18,8 @@ pub enum AppError {
     InvalidName(String),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
+    #[error("watcher: {0}")]
+    Watcher(#[from] notify::Error),
 }
 
 impl Serialize for AppError {

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
 import { PALETTES, PALETTE_OPTIONS, PALETTE_KEYS, type Palette } from './palettes';
@@ -780,6 +781,28 @@ export default function App() {
       }
     })();
   }, [refreshSkills]);
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | null = null;
+
+    listen('skills-changed', () => {
+      refreshSkills();
+    })
+      .then((cleanup) => {
+        if (cancelled) cleanup();
+        else unlisten = cleanup;
+      })
+      .catch((e) => {
+        console.error('skills-changed listener failed', e);
+        showNotice('File watcher listener failed: ' + e);
+      });
+
+    return () => {
+      cancelled = true;
+      if (unlisten) unlisten();
+    };
+  }, [refreshSkills, showNotice]);
 
   const setConfig = useCallback(async (patch: Partial<Config>) => {
     setConfigState((c) => ({ ...c, ...patch }));

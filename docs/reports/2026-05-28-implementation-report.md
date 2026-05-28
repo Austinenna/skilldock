@@ -143,3 +143,29 @@ What changed:
 Verification:
 - `pnpm build`
 - Result: frontend production build passed.
+
+## Task 8: Add File Watcher
+
+Commit target: `feat: refresh skills from file changes`
+
+Changed files:
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `src-tauri/src/error.rs`
+- `src-tauri/src/main.rs`
+- `src-tauri/src/watcher.rs`
+- `src/App.tsx`
+
+What changed:
+- Added `notify` and a backend watcher that stays alive in Tauri managed state.
+- Watched the central skills directory and platform skill directories that are visible in the current config at startup.
+- Debounced filesystem events before emitting `skills-changed`.
+- Added frontend listener for `skills-changed` that refreshes skills through the existing scan flow.
+- Kept the manual Refresh button as a fallback.
+
+Verification:
+- `rustfmt src/watcher.rs src/error.rs`
+- `cargo check`
+- `cargo test`
+- `pnpm build`
+- Result: Rust check passed; 15 Rust tests passed; frontend production build passed.
