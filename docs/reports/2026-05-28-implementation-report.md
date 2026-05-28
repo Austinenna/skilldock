@@ -126,3 +126,20 @@ Verification:
 - `rg -n "alert\\(" src/App.tsx`
 - `pnpm build`
 - Result: no remaining `alert(...)` calls; frontend production build passed.
+
+## Task 7: Add Pending States And Manual Refresh
+
+Commit target: `feat: add refresh and pending states`
+
+Changed files:
+- `src/App.tsx`
+
+What changed:
+- Added pending state for skill scanning, route toggles, skill deletion, and skill import.
+- Added a manual Refresh button to the list header.
+- Disabled affected buttons while their operations are running.
+- Preserved the selected skill after refresh when the same id still exists, otherwise selected the first available skill.
+
+Verification:
+- `pnpm build`
+- Result: frontend production build passed.

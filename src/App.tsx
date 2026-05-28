@@ -173,15 +173,21 @@ function Sidebar({ active, setActive, counts, visiblePlatforms, totalSkills, p }
 }
 
 // ─── List header / rows / cards ────────────────────────────────────
-function ListHeader({ title, q, setQ, view, setView, onImport, p, density }: {
+function ListHeader({ title, q, setQ, view, setView, onImport, onRefresh, refreshing, importDisabled, p, density }: {
   title: string; q: string; setQ: (s: string) => void; view: 'list' | 'grid';
-  setView: (v: 'list' | 'grid') => void; onImport: () => void; p: Palette; density: string;
+  setView: (v: 'list' | 'grid') => void; onImport: () => void; onRefresh: () => void;
+  refreshing: boolean; importDisabled: boolean; p: Palette; density: string;
 }) {
   return (
     <div style={{ borderBottom: '1px solid ' + p.line, padding: density === 'compact' ? '8px 12px' : '10px 12px 10px 14px', display: 'flex', flexDirection: 'column', gap: 8, background: p.panel }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
         <div style={{ fontSize: 13, fontWeight: 600, color: p.text }}>{title}</div>
         <div style={{ flex: 1 }} />
+        <button onClick={onRefresh} disabled={refreshing} style={{
+          border: '1px solid ' + p.line, background: p.panel, color: p.text, cursor: refreshing ? 'not-allowed' : 'pointer',
+          borderRadius: 6, padding: '4px 9px', fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS,
+          opacity: refreshing ? 0.6 : 1,
+        }}>{refreshing ? 'Refreshing' : 'Refresh'}</button>
         <div style={{ display: 'flex', background: 'rgba(0,0,0,0.05)', borderRadius: 6, padding: 2 }}>
           {(['list', 'grid'] as const).map((m) => (
             <button key={m} onClick={() => setView(m)}
@@ -192,10 +198,10 @@ function ListHeader({ title, q, setQ, view, setView, onImport, p, density }: {
               }}>{m === 'list' ? '☰' : '▦'}</button>
           ))}
         </div>
-        <button onClick={onImport} style={{
-          border: 0, background: p.accent, color: '#fff', cursor: 'pointer',
+        <button onClick={onImport} disabled={importDisabled} style={{
+          border: 0, background: p.accent, color: '#fff', cursor: importDisabled ? 'not-allowed' : 'pointer',
           borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS,
-          display: 'flex', alignItems: 'center', gap: 4,
+          display: 'flex', alignItems: 'center', gap: 4, opacity: importDisabled ? 0.6 : 1,
         }}>＋ Import</button>
       </div>
       <div style={{ position: 'relative' }}>
@@ -337,9 +343,10 @@ function Toggle({ on, disabled, blocked, onClick, p }: {
   );
 }
 
-function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDelete, onNotice, visiblePlatforms, p, paletteKey }: {
+function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDelete, onNotice, routePending, deletePending, visiblePlatforms, p, paletteKey }: {
   skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
   toggleRoute: (pid: string) => void; onDelete: () => void; onNotice: (message: string, tone?: NoticeTone) => void;
+  routePending: string | null; deletePending: boolean;
   visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey;
 }) {
   const [descOpen, setDescOpen] = useState(true);
@@ -374,7 +381,7 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
               {skill.updated && (<><span>·</span><span>updated {skill.updated}</span></>)}
             </div>
           </div>
-          <button onClick={() => {
+          <button disabled={deletePending} onClick={() => {
             if (confirmDel) { onDelete(); setConfirmDel(false); }
             else setConfirmDel(true);
           }}
@@ -382,9 +389,9 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
               border: '1px solid ' + (confirmDel ? p.danger : p.line),
               background: confirmDel ? p.danger : p.panel,
               color: confirmDel ? '#fff' : p.danger, fontSize: 12, fontFamily: FONT_SANS,
-              borderRadius: 6, padding: '5px 10px', cursor: 'pointer',
-              transition: 'background-color 0.12s, color 0.12s',
-            }}>{confirmDel ? 'Confirm delete' : 'Delete'}</button>
+              borderRadius: 6, padding: '5px 10px', cursor: deletePending ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.12s, color 0.12s', opacity: deletePending ? 0.6 : 1,
+            }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete')}</button>
         </div>
       </div>
 
@@ -416,8 +423,9 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
           {visiblePlatforms.map((pl) => {
             const on = skill.routes.includes(pl.id);
             const conflict = skill.routeConflicts.find((item) => item.platformId === pl.id);
+            const pending = routePending === pl.id;
             const handleRouteClick = () => {
-              if (pl.isHub) return;
+              if (pl.isHub || pending) return;
               if (conflict) {
                 onNotice(conflict.message, 'error');
                 return;
@@ -441,7 +449,7 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
                 display: 'flex', alignItems: 'center', gap: 12,
                 padding: '10px 12px', border: '1px solid ' + p.line, borderRadius: 8,
                 background: on ? 'transparent' : 'rgba(0,0,0,0.015)',
-                cursor: pl.isHub ? 'default' : 'pointer',
+                cursor: pl.isHub ? 'default' : (pending ? 'not-allowed' : 'pointer'),
               }}>
                 <div style={{ width: 24, height: 24, borderRadius: 6, background: pl.isHub ? p.hubSoft : 'rgba(0,0,0,0.06)', color: p.text2, fontSize: 12, fontWeight: 700, display: 'grid', placeItems: 'center', fontFamily: MONO, flexShrink: 0 }}>{pl.short[0]}</div>
                 <div style={{ flex: 1, minWidth: 0 }}>
@@ -452,7 +460,7 @@ function Detail({ skill, detail, detailLoading, detailError, toggleRoute, onDele
                   </div>
                   <div style={{ fontSize: 11, color: conflict ? p.danger : p.text3, fontFamily: MONO, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.path}{skill.id}</div>
                 </div>
-                <Toggle on={on} disabled={pl.isHub} blocked={!!conflict} onClick={handleRouteClick} p={p} />
+                <Toggle on={on} disabled={pl.isHub || pending} blocked={!!conflict} onClick={handleRouteClick} p={p} />
               </div>
             );
           })}
@@ -649,14 +657,14 @@ function SettingsPane({ p, platforms, config, setConfig }: {
 }
 
 // ─── Import modal ─────────────────────────────────────────────────
-function ImportModal({ open, onClose, onAdd, p }: {
-  open: boolean; onClose: () => void; onAdd: (name: string, tagline: string) => void; p: Palette;
+function ImportModal({ open, onClose, onAdd, pending, p }: {
+  open: boolean; onClose: () => void; onAdd: (name: string, tagline: string) => void; pending: boolean; p: Palette;
 }) {
   const [name, setName] = useState('');
   const [tagline, setTagline] = useState('');
   if (!open) return null;
   return (
-    <div onClick={onClose} style={{
+    <div onClick={() => { if (!pending) onClose(); }} style={{
       position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
       display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
     }}>
@@ -668,12 +676,12 @@ function ImportModal({ open, onClose, onAdd, p }: {
 
         <div style={{ marginTop: 18 }}>
           <div style={{ fontSize: 11, color: p.text2, marginBottom: 4 }}>Skill name</div>
-          <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. csv-cleaner"
+          <input value={name} disabled={pending} onChange={(e) => setName(e.target.value)} placeholder="e.g. csv-cleaner"
             style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
         </div>
         <div style={{ marginTop: 12 }}>
           <div style={{ fontSize: 11, color: p.text2, marginBottom: 4 }}>One-line description</div>
-          <input value={tagline} onChange={(e) => setTagline(e.target.value)} placeholder="What does it do?"
+          <input value={tagline} disabled={pending} onChange={(e) => setTagline(e.target.value)} placeholder="What does it do?"
             style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: FONT_SANS, outline: 'none', color: p.text, background: p.panel }} />
         </div>
         <div style={{ marginTop: 14, fontSize: 11, color: p.text3, fontFamily: MONO, padding: '8px 10px', background: 'rgba(0,0,0,0.04)', borderRadius: 6 }}>
@@ -681,16 +689,17 @@ function ImportModal({ open, onClose, onAdd, p }: {
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{
+          <button onClick={onClose} disabled={pending} style={{
             border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6,
-            padding: '6px 14px', fontSize: 13, cursor: 'pointer', fontFamily: FONT_SANS,
+            padding: '6px 14px', fontSize: 13, cursor: pending ? 'not-allowed' : 'pointer', fontFamily: FONT_SANS,
+            opacity: pending ? 0.6 : 1,
           }}>Cancel</button>
-          <button onClick={() => { onAdd(name, tagline); setName(''); setTagline(''); }} disabled={!name}
+          <button onClick={() => { onAdd(name, tagline); if (!pending) { setName(''); setTagline(''); } }} disabled={!name || pending}
             style={{
               border: 0, background: p.accent, color: '#fff', borderRadius: 6,
-              padding: '6px 14px', fontSize: 13, cursor: name ? 'pointer' : 'not-allowed',
-              fontFamily: FONT_SANS, fontWeight: 500, opacity: name ? 1 : 0.5,
-            }}>Add skill</button>
+              padding: '6px 14px', fontSize: 13, cursor: name && !pending ? 'pointer' : 'not-allowed',
+              fontFamily: FONT_SANS, fontWeight: 500, opacity: name && !pending ? 1 : 0.5,
+            }}>{pending ? 'Adding' : 'Add skill'}</button>
         </div>
       </div>
     </div>
@@ -715,6 +724,10 @@ export default function App() {
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
+  const [scanPending, setScanPending] = useState(false);
+  const [routePending, setRoutePending] = useState<string | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+  const [importPending, setImportPending] = useState(false);
 
   const [active, setActive] = useState('central');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -734,10 +747,20 @@ export default function App() {
   }, [notice]);
 
   const refreshSkills = useCallback(async () => {
-    try { setSkills(await api.scanSkills()); }
+    setScanPending(true);
+    try {
+      const next = await api.scanSkills();
+      setSkills(next);
+      setSelectedId((current) => {
+        if (current && next.some((skill) => skill.id === current)) return current;
+        return next[0]?.id ?? null;
+      });
+    }
     catch (e) {
       console.error('scanSkills failed', e);
       showNotice('Scan failed: ' + e);
+    } finally {
+      setScanPending(false);
     }
   }, [showNotice]);
 
@@ -823,24 +846,31 @@ export default function App() {
   }, [selected?.id, details]);
 
   const toggleRoute = async (pid: string) => {
-    if (!selected) return;
+    if (!selected || routePending) return;
     const on = selected.routes.includes(pid);
+    setRoutePending(pid);
     try {
       if (on) await api.removeRoute(selected.id, pid);
       else await api.addRoute(selected.id, pid);
       await refreshSkills();
     } catch (e) {
       showNotice((on ? 'Remove route failed: ' : 'Add route failed: ') + e);
+    } finally {
+      setRoutePending(null);
     }
   };
 
   const deleteSelected = async () => {
-    if (!selected) return;
+    if (!selected || deletePending) return;
+    setDeletePending(true);
     try { await api.deleteSkill(selected.id); await refreshSkills(); }
     catch (e) { showNotice('Delete failed: ' + e); }
+    finally { setDeletePending(false); }
   };
 
   const addSkill = async (name: string, tagline: string) => {
+    if (importPending) return;
+    setImportPending(true);
     try {
       const sk = await api.importSkill(name, tagline);
       await refreshSkills();
@@ -848,6 +878,7 @@ export default function App() {
       setActive('central');
       setImportOpen(false);
     } catch (e) { showNotice('Import failed: ' + e); }
+    finally { setImportPending(false); }
   };
 
   const activeTitle = active === 'central' ? 'Central Skills' :
@@ -892,7 +923,9 @@ export default function App() {
             <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
             <ListHeader title={activeTitle + ' · ' + filtered.length} q={q} setQ={setQ}
               view={config.view} setView={(v) => setConfig({ view: v })}
-              onImport={() => setImportOpen(true)} p={p} density={config.density} />
+              onImport={() => setImportOpen(true)} onRefresh={refreshSkills}
+              refreshing={scanPending} importDisabled={importPending}
+              p={p} density={config.density} />
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {filtered.length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: p.text3, fontSize: 12 }}>
@@ -920,6 +953,7 @@ export default function App() {
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
               <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
                 toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
+                routePending={routePending} deletePending={deletePending}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />
             </div>
           ) : (
@@ -933,7 +967,7 @@ export default function App() {
         </>
       )}
 
-      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onAdd={addSkill} p={p} />
+      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onAdd={addSkill} pending={importPending} p={p} />
     </div>
   );
 }
