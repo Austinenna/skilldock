@@ -15,13 +15,15 @@
 - 路径和 skill id 安全校验，避免路径穿越和误删真实目录
 - 非阻塞错误通知和操作 pending 状态
 - 三套主题、列表/网格视图、紧凑/舒适密度（持久化到 `~/Library/Application Support/com.skillloom.desktop/config.json`）
+- API key 可存到 macOS Keychain，前端只读取 configured/not-configured 状态
+- AI 摘要支持按 `SKILL.md` 内容 hash 缓存；没有配置 key 时降级显示 frontmatter description
 
-下一阶段再做：AI 摘要、Keychain API key、打包分发、批量路由。
+下一阶段再做：签名/公证后的正式分发、CI release workflow、批量路由。
 
 ## 当前限制
 
-- AI 摘要尚未接入，详情页仍显示占位文案。
-- macOS bundle 尚未开启，`tauri.conf.json` 里 `bundle.active: false`。
+- AI 摘要的 live API 请求需要用户自行保存 API key；本地验证时未配置真实 key，也未触发外部请求。
+- macOS `.app` bundle 已开启，但当前是 unsigned local build；正式发给别人前还需要 Developer ID 签名、notarization 和 DMG/release 流程。
 - watcher 只在启动时读取一次当前隐藏平台配置；运行中修改平台可见性后，仍可用手动 Refresh 兜底。
 - 还没有 GitHub Actions CI / release workflow。
 
@@ -82,6 +84,7 @@ SkillLoom/
 │       ├── skills.rs   # scan / import / delete
 │       ├── routes.rs   # add_route / remove_route（symlink 管理）
 │       ├── config.rs   # 用户偏好持久化
+│       ├── ai.rs       # Keychain API key + AI summary cache
 │       ├── watcher.rs  # 文件监听，emit skills-changed
 │       └── error.rs    # 统一错误类型
 ├── docs/plans/         # 分步实现计划
@@ -91,5 +94,10 @@ SkillLoom/
 
 ## 打包成 .app
 
-v1 暂未开启打包（`tauri.conf.json` 里 `bundle.active: false`）。
-要分发时把它改成 `true` 并补 `bundle.icon`，然后 `pnpm tauri build`。完整签名 + notarization 流程见 `DEVELOPMENT.md` §8。
+本地 unsigned build：
+
+```bash
+pnpm tauri build
+```
+
+`.app` 产物会写到 `src-tauri/target/release/bundle/macos/SkillLoom.app`。这个构建适合自己机器验证；正式分发给别人前，需要配置 Apple Developer ID 签名、notarization 和 DMG/release 流程。完整流程见 `DEVELOPMENT.md` §8。

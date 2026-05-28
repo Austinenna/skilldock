@@ -247,3 +247,26 @@ Verification:
 - `pnpm build`
 - Result: offline Rust check passed; 15 Rust tests passed; frontend production build passed.
 - Note: live API generation and dependency downloads were intentionally skipped.
+
+## Task 12: Prepare macOS Build
+
+Commit target: `build: prepare macos packaging`
+
+Changed files:
+- `src-tauri/tauri.conf.json`
+- `README.md`
+- `DEVELOPMENT.md`
+
+What changed:
+- Enabled Tauri bundle generation for the macOS `.app` target.
+- Kept the existing real icon set in `src-tauri/icons/` and wired it through the existing bundle icon list.
+- Documented local unsigned builds separately from signed/notarized release builds.
+- Updated README and DEVELOPMENT to reflect the implemented Keychain/API summary work, current local bundle status, and remaining release gaps.
+- Deferred DMG, signing, notarization, and release workflow until Apple Developer credentials are ready.
+
+Verification:
+- `pnpm tauri build`
+- `git diff --check`
+- Result: frontend build, release binary build, and unsigned `.app` bundle succeeded.
+- Bundle output: `src-tauri/target/release/bundle/macos/SkillLoom.app` (4.3M).
+- Note: an initial all-target bundle attempt produced the `.app` but failed during DMG script execution, so the current bundle target is intentionally `.app` only.
