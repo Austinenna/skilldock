@@ -84,7 +84,7 @@ SkillLoom/
 | 文件监听 | `notify` |
 | 序列化 | `serde`, `serde_json` |
 | HTTP（调 Claude API） | macOS `/usr/bin/curl`（避免额外下载依赖；有 key 时才触发） |
-| 本地缓存 DB | 系统 SQLite 动态库 + `sha2` content hash |
+| 本地缓存 DB | macOS `/usr/bin/sqlite3` + `sha2` content hash |
 | 安全存 API key | `keyring`（走 macOS Keychain） |
 | 错误处理 | `thiserror` + `anyhow` |
 | 异步运行时 | `tokio`（Tauri 自带） |

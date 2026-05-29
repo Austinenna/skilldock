@@ -234,7 +234,7 @@
 修改内容：
 - 新增 `generate_summary(skill_id, force)` Tauri command，并通过前端 IPC 层接入。
 - 为 `SKILL.md` 增加 SHA-256 内容 hash，skill 内容变化时缓存会自动失效。
-- 使用系统 SQLite 库新增本地 `ai_summary` 缓存，避免下载新的数据库 crate。
+- 使用 macOS 自带 `/usr/bin/sqlite3` 新增本地 `ai_summary` 缓存，避免下载新的数据库 crate。
 - 保持 API 生成可选：未配置 API key 时，命令会降级返回解析出的 skill 描述。
 - 后续如果配置了 key，后端可以通过 macOS `curl` 请求 Anthropic 摘要；本步骤未触发 live 请求。
 - 删除 skill 时会清理对应的缓存摘要。
@@ -270,3 +270,30 @@
 - 结果：前端构建、release 二进制构建和 unsigned `.app` bundle 均通过。
 - Bundle 输出：`src-tauri/target/release/bundle/macos/SkillLoom.app`（4.3M）。
 - 备注：第一次 all-target bundle 尝试已生成 `.app`，但在 DMG 脚本阶段失败，因此当前 bundle target 有意收窄为 `.app`。
+
+## 任务 13：调整 SQLite 缓存实现
+
+提交目标：`refactor: simplify sqlite cache`
+
+修改文件：
+- `src-tauri/src/ai.rs`
+- `DEVELOPMENT.md`
+- `docs/reports/2026-05-28-implementation-report.md`
+
+修改内容：
+- 移除 `ai.rs` 中手写的 `sqlite3` unsafe FFI 包装。
+- 保留 `cache.db` 和 `ai_summary` 表结构，继续用 SQLite 做 AI 摘要缓存。
+- 改为通过 macOS 自带 `/usr/bin/sqlite3` 执行极薄的本地缓存读写逻辑，符合当前“mac 优先”的目标。
+- 增加 SQL 字符串字面量转义，避免 skill id、hash、summary 写入 SQL 时破坏语句。
+- 增加 `sql_literal` 单元测试，覆盖单引号转义和 NUL 字节拒绝。
+- 更新 DEVELOPMENT 中的本地缓存 DB 说明。
+
+验证：
+- `which sqlite3`
+- `sqlite3 -version`
+- `rustfmt src-tauri/src/ai.rs`
+- `cargo check --offline`
+- `cargo test --offline`
+- `pnpm build`
+- `pnpm tauri build`
+- 结果：`sqlite3` 可用；离线 Rust check 通过；17 个 Rust 测试通过；前端生产构建通过；macOS unsigned `.app` 打包通过。
