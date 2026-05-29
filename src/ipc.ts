@@ -1,8 +1,19 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Platform, Skill, Config, SkillDetail, ApiKeyStatus, AiTestResult } from './types';
+import type {
+  Platform,
+  Skill,
+  Config,
+  SkillDetail,
+  AiTestResult,
+  InitPreview,
+  InitResult,
+} from './types';
 
 export const api = {
   listPlatforms: () => invoke<Platform[]>('list_platforms'),
+  previewRepositoryInit: () => invoke<InitPreview>('preview_repository_init'),
+  runRepositoryInit: (selectedKeys: string[]) =>
+    invoke<InitResult>('run_repository_init', { selectedKeys }),
   scanSkills: () => invoke<Skill[]>('scan_skills'),
   getSkillDetail: (id: string) => invoke<SkillDetail>('get_skill_detail', { id }),
   addRoute: (skillId: string, platformId: string) =>
@@ -15,10 +26,7 @@ export const api = {
   getConfig: () => invoke<Config>('get_config'),
   updateConfig: (patch: Partial<Config>) =>
     invoke<Config>('update_config', { patch }),
-  getApiKeyStatus: () => invoke<ApiKeyStatus>('get_api_key_status'),
-  setApiKey: (key: string) => invoke<ApiKeyStatus>('set_api_key', { key }),
-  clearApiKey: () => invoke<ApiKeyStatus>('clear_api_key'),
-  testAiConfig: () => invoke<AiTestResult>('test_ai_config'),
-  generateSummary: (skillId: string, force = false) =>
-    invoke<string>('generate_summary', { skillId, force }),
+  testAiConfig: (apiKey: string) => invoke<AiTestResult>('test_ai_config', { apiKey }),
+  generateSummary: (skillId: string, force = false, apiKey?: string) =>
+    invoke<string>('generate_summary', { skillId, force, apiKey }),
 };

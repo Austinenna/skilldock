@@ -3,7 +3,17 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
 import { PALETTES, PALETTE_OPTIONS, PALETTE_KEYS, type Palette } from './palettes';
-import type { AiProvider, Config, PaletteKey, Platform, Skill, SkillDetail } from './types';
+import type {
+  AiProvider,
+  Config,
+  InitAction,
+  InitPreview,
+  InitResult,
+  PaletteKey,
+  Platform,
+  Skill,
+  SkillDetail,
+} from './types';
 
 const FONT_SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Inter", sans-serif';
 const FONT_DISPLAY_WARM = '"Instrument Serif", Georgia, serif';
@@ -40,15 +50,35 @@ interface AppNotice {
 
 type AiTestState = { tone: NoticeTone; message: string } | null;
 
+const INIT_ACTION_LABELS: Record<InitAction, string> = {
+  migrateToCentral: 'Migrate',
+  linkExistingCentral: 'Link existing',
+  linkPlannedCentral: 'Link planned',
+  alreadyRouted: 'Routed',
+  skipConflict: 'Conflict',
+  skipInvalid: 'Skipped',
+};
+
+function isInitActionSelectable(action: InitAction) {
+  return action === 'migrateToCentral' || action === 'linkExistingCentral' || action === 'linkPlannedCentral';
+}
+
 // ─── small helpers ────────────────────────────────────────────────
 function useFontLink() {
   useEffect(() => {
-    if (document.getElementById('skillloom-fonts')) return;
-    const l = document.createElement('link');
-    l.id = 'skillloom-fonts';
-    l.rel = 'stylesheet';
-    l.href = 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap';
-    document.head.appendChild(l);
+    if (!document.getElementById('skillloom-fonts')) {
+      const l = document.createElement('link');
+      l.id = 'skillloom-fonts';
+      l.rel = 'stylesheet';
+      l.href = 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap';
+      document.head.appendChild(l);
+    }
+    if (!document.getElementById('skillloom-global-styles')) {
+      const style = document.createElement('style');
+      style.id = 'skillloom-global-styles';
+      style.textContent = '@keyframes skillloom-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+      document.head.appendChild(style);
+    }
   }, []);
 }
 
@@ -194,13 +224,16 @@ function ListHeader({ title, q, setQ, view, setView, onImport, onRefresh, refres
   return (
     <div style={{ borderBottom: '1px solid ' + p.line, padding: density === 'compact' ? '8px 12px' : '10px 12px 10px 14px', display: 'flex', flexDirection: 'column', gap: 8, background: p.panel }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: p.text }}>{title}</div>
+        <div style={{ fontSize: 13, fontWeight: 600, color: p.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
         <div style={{ flex: 1 }} />
-        <button onClick={onRefresh} disabled={refreshing} style={{
-          border: '1px solid ' + p.line, background: p.panel, color: p.text, cursor: refreshing ? 'not-allowed' : 'pointer',
-          borderRadius: 6, padding: '4px 9px', fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS,
-          opacity: refreshing ? 0.6 : 1,
-        }}>{refreshing ? 'Refreshing' : 'Refresh'}</button>
+        <button onClick={onRefresh} disabled={refreshing} aria-label="Refresh skills" title="Refresh" style={{
+          width: 28, height: 28, border: '1px solid ' + p.line, background: p.panel,
+          color: p.text, cursor: refreshing ? 'not-allowed' : 'pointer',
+          borderRadius: 6, padding: 0, fontSize: 15, fontWeight: 600, fontFamily: FONT_SANS,
+          opacity: refreshing ? 0.75 : 1, display: 'grid', placeItems: 'center', flexShrink: 0,
+        }}>
+          <span style={{ display: 'inline-block', lineHeight: 1, animation: refreshing ? 'skillloom-spin 0.8s linear infinite' : undefined }}>↻</span>
+        </button>
         <div style={{ display: 'flex', background: 'rgba(0,0,0,0.05)', borderRadius: 6, padding: 2 }}>
           {(['list', 'grid'] as const).map((m) => (
             <button key={m} onClick={() => setView(m)}
@@ -215,6 +248,7 @@ function ListHeader({ title, q, setQ, view, setView, onImport, onRefresh, refres
           border: 0, background: p.accent, color: '#fff', cursor: importDisabled ? 'not-allowed' : 'pointer',
           borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS,
           display: 'flex', alignItems: 'center', gap: 4, opacity: importDisabled ? 0.6 : 1,
+          whiteSpace: 'nowrap', flexShrink: 0, minHeight: 28,
         }}>＋ Import</button>
       </div>
       <div style={{ position: 'relative' }}>
@@ -557,10 +591,11 @@ function Segmented<T extends string>({ value, options, onChange, p }: {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────
-function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, aiTestPending, aiTest, onSaveApiKey, onClearApiKey, onTestAi }: {
+function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTestPending, aiTest, onUseApiKey, onClearApiKey, onTestAi, onInitialize, initializePending }: {
   p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => Promise<void>;
-  apiKeyConfigured: boolean; apiKeyPending: boolean; aiTestPending: boolean; aiTest: AiTestState;
-  onSaveApiKey: (key: string) => Promise<boolean>; onClearApiKey: () => void; onTestAi: () => Promise<void>;
+  apiKeyConfigured: boolean; aiTestPending: boolean; aiTest: AiTestState;
+  onUseApiKey: (key: string) => boolean; onClearApiKey: () => void; onTestAi: () => Promise<void>;
+  onInitialize: () => void; initializePending: boolean;
 }) {
   const [apiKey, setApiKey] = useState('');
   const [apiKeyMessage, setApiKeyMessage] = useState<AiTestState>(null);
@@ -597,19 +632,20 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
     await setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
     await onTestAi();
   };
-  const saveCurrentApiKey = async () => {
+  const useCurrentApiKey = () => {
     setApiKeyMessage(null);
-    const saved = await onSaveApiKey(apiKey);
-    if (saved) {
+    const activated = onUseApiKey(apiKey);
+    if (activated) {
       setApiKey('');
-      setApiKeyMessage({ tone: 'info', message: 'Key saved. You can now run Test or Regenerate.' });
+      setApiKeyMessage({ tone: 'info', message: 'Key is active for this app session. It is not saved.' });
     } else {
-      setApiKeyMessage({ tone: 'error', message: 'Key was not saved. Check Keychain permission or paste the key again.' });
+      setApiKeyMessage({ tone: 'error', message: 'Paste a non-empty API key.' });
     }
   };
   const clearCurrentApiKey = () => {
     setApiKeyMessage(null);
     onClearApiKey();
+    setApiKeyMessage({ tone: 'info', message: 'Session API key cleared.' });
   };
 
   return (
@@ -696,6 +732,24 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
           </div>
         </div>
 
+        {/* Repository */}
+        <div style={{ marginBottom: 32 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>Repository</div>
+          <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Initialize central repository</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Scan every known platform folder and preview safe migrations.</div>
+              </div>
+              <button onClick={onInitialize} disabled={initializePending} style={{
+                border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
+                fontSize: 12, cursor: initializePending ? 'not-allowed' : 'pointer',
+                opacity: initializePending ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>{initializePending ? 'Scanning' : 'Scan folders'}</button>
+            </div>
+          </div>
+        </div>
+
         {/* AI */}
         <div style={{ marginBottom: 32 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>AI</div>
@@ -729,25 +783,25 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: apiKeyConfigured ? p.hub : p.text3, display: 'inline-block' }} />
-                  {apiKeyConfigured ? 'Saved in macOS Keychain. Hidden for security.' : (config.aiProvider === 'chat' ? 'No key stored. Sent as api-key.' : 'No key stored. Sent as x-api-key.')}
+                  {apiKeyConfigured ? 'Active for this app session only. It is not saved.' : (config.aiProvider === 'chat' ? 'No key active. Will be sent as api-key for this session.' : 'No key active. Will be sent as x-api-key for this session.')}
                 </div>
               </div>
-              <input value={apiKey} disabled={apiKeyPending} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
+              <input value={apiKey} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
                 style={{ width: 220, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 12, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-              <button onClick={saveCurrentApiKey} disabled={apiKeyPending || !apiKey.trim()} style={{
+              <button onClick={useCurrentApiKey} disabled={!apiKey.trim()} style={{
                 border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: apiKeyPending || !apiKey.trim() ? 'not-allowed' : 'pointer',
-                opacity: apiKeyPending || !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>{apiKeyPending ? 'Saving' : 'Save'}</button>
-              <button onClick={clearCurrentApiKey} disabled={apiKeyPending || !apiKeyConfigured} style={{
+                fontSize: 12, cursor: !apiKey.trim() ? 'not-allowed' : 'pointer',
+                opacity: !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>Use this session</button>
+              <button onClick={clearCurrentApiKey} disabled={!apiKeyConfigured} style={{
                 border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: apiKeyPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: apiKeyPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+                fontSize: 12, cursor: !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>Clear</button>
-              <button onClick={testCurrentAiConfig} disabled={apiKeyPending || aiTestPending || !apiKeyConfigured} style={{
+              <button onClick={testCurrentAiConfig} disabled={aiTestPending || !apiKeyConfigured} style={{
                 border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: apiKeyPending || aiTestPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: apiKeyPending || aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+                fontSize: 12, cursor: aiTestPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>{aiTestPending ? 'Testing' : 'Test'}</button>
             </div>
             {apiKeyMessage && (
@@ -856,6 +910,196 @@ function ImportModal({ open, onClose, onAdd, pending, p }: {
   );
 }
 
+// ─── Repository init modal ────────────────────────────────────────
+function InitRepositoryModal({ open, preview, result, selected, scanPending, runPending, onClose, onRefresh, onRun, onToggle, onToggleAll, p }: {
+  open: boolean;
+  preview: InitPreview | null;
+  result: InitResult | null;
+  selected: Record<string, boolean>;
+  scanPending: boolean;
+  runPending: boolean;
+  onClose: () => void;
+  onRefresh: () => void;
+  onRun: () => void;
+  onToggle: (key: string, checked: boolean) => void;
+  onToggleAll: (checked: boolean) => void;
+  p: Palette;
+}) {
+  const [showSkipped, setShowSkipped] = useState(false);
+  useEffect(() => {
+    if (open) setShowSkipped(false);
+  }, [open, preview]);
+  if (!open) return null;
+
+  const items = preview?.items ?? [];
+  const visibleItems = showSkipped ? items : items.filter((item) => item.action !== 'skipInvalid');
+  const hiddenSkippedCount = items.length - visibleItems.length;
+  const selectableItems = items.filter((item) => isInitActionSelectable(item.action));
+  const selectedCount = selectableItems.filter((item) => selected[item.key]).length;
+  const allSelected = selectableItems.length > 0 && selectedCount === selectableItems.length;
+  const busy = scanPending || runPending;
+
+  const actionTone = (action: InitAction) => {
+    if (action === 'migrateToCentral') return { color: p.hubText, bg: p.hubSoft, border: p.hubSoft };
+    if (action === 'linkExistingCentral' || action === 'linkPlannedCentral') return { color: p.text, bg: p.accentSoft, border: p.accentSoft };
+    if (action === 'skipConflict') return { color: p.danger, bg: 'rgba(255,59,48,0.08)', border: 'rgba(255,59,48,0.18)' };
+    return { color: p.text3, bg: 'rgba(0,0,0,0.04)', border: p.lineSoft };
+  };
+
+  return (
+    <div onClick={() => { if (!busy) onClose(); }} style={{
+      position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
+      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 12,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        width: 820, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 64px)',
+        background: p.panel, borderRadius: 12, boxShadow: '0 22px 70px rgba(0,0,0,0.32)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={{ fontSize: 18, fontWeight: 600, color: p.text }}>Initialize central repository</div>
+              <div style={{ fontSize: 12, color: p.text2, marginTop: 4 }}>
+                Scans all known platform folders, backs up real skill directories, then replaces them with central routes.
+              </div>
+            </div>
+            {preview && (
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {[
+                  ['Ready', preview.summary.migratable, p.hubText, p.hubSoft],
+                  ['Routed', preview.summary.alreadyRouted, p.text2, 'rgba(0,0,0,0.04)'],
+                  ['Conflicts', preview.summary.conflicts, p.danger, 'rgba(255,59,48,0.08)'],
+                  ['Skipped', preview.summary.skipped, p.text3, 'rgba(0,0,0,0.04)'],
+                ].map(([label, count, color, bg]) => (
+                  <span key={String(label)} style={{
+                    fontSize: 10, color: String(color), background: String(bg), borderRadius: 10,
+                    padding: '3px 7px', fontFamily: MONO,
+                  }}>{label} {count}</span>
+                ))}
+              </div>
+            )}
+          </div>
+          {preview && (
+            <div style={{ marginTop: 12, fontSize: 11, color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Central: {preview.centralPath}
+            </div>
+          )}
+        </div>
+
+        <div style={{ flex: 1, minHeight: 260, overflow: 'auto' }}>
+          {scanPending && !preview ? (
+            <div style={{ height: 260, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>Scanning platform folders…</div>
+          ) : visibleItems.length === 0 ? (
+            <div style={{ height: 260, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>
+              {hiddenSkippedCount > 0 ? `${hiddenSkippedCount} skipped item(s) hidden.` : 'No existing platform skills found.'}
+            </div>
+          ) : (
+            <div>
+              <div style={{
+                display: 'grid', gridTemplateColumns: '34px minmax(140px, 1fr) 110px 118px minmax(210px, 1.4fr)',
+                gap: 10, alignItems: 'center', padding: '9px 14px',
+                borderBottom: '1px solid ' + p.line, background: p.panel,
+                position: 'sticky', top: 0, zIndex: 1,
+              }}>
+                <input type="checkbox" checked={allSelected} disabled={selectableItems.length === 0 || busy}
+                  onChange={(event) => onToggleAll(event.target.checked)} />
+                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Skill</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Source</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Action</div>
+                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Path / note</div>
+              </div>
+              {visibleItems.map((item, index) => {
+                const canSelect = isInitActionSelectable(item.action);
+                const tone = actionTone(item.action);
+                return (
+                  <div key={item.key} style={{
+                    display: 'grid', gridTemplateColumns: '34px minmax(140px, 1fr) 110px 118px minmax(210px, 1.4fr)',
+                    gap: 10, alignItems: 'center', padding: '10px 14px',
+                    borderBottom: index < items.length - 1 ? '1px solid ' + p.lineSoft : 'none',
+                    background: index % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.012)',
+                    opacity: canSelect || item.action === 'alreadyRouted' ? 1 : 0.82,
+                  }}>
+                    <input type="checkbox" disabled={!canSelect || busy} checked={Boolean(selected[item.key]) && canSelect}
+                      onChange={(event) => onToggle(item.key, event.target.checked)} />
+                    <div style={{ minWidth: 0 }}>
+                      <div title={item.title} style={{ fontSize: 13, color: p.text, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
+                      <div style={{ fontSize: 10, color: p.text3, fontFamily: MONO, marginTop: 2 }}>{item.id}</div>
+                    </div>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 12, color: p.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.platformName}</div>
+                      <div style={{ fontSize: 10, color: p.text3, fontFamily: MONO, marginTop: 2 }}>{item.platformId}{item.sourceIsSymlink ? ' · symlink' : ''}</div>
+                    </div>
+                    <span style={{
+                      width: 'fit-content', maxWidth: '100%', fontSize: 10, color: tone.color,
+                      background: tone.bg, border: '1px solid ' + tone.border, borderRadius: 10,
+                      padding: '2px 7px', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                    }}>{INIT_ACTION_LABELS[item.action]}</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div title={item.sourcePath} style={{ fontSize: 10, color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.sourcePath}</div>
+                      {item.message && (
+                        <div title={item.message} style={{ fontSize: 11, color: item.action === 'skipConflict' ? p.danger : p.text2, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.message}</div>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {result && (
+          <div style={{ borderTop: '1px solid ' + p.lineSoft, padding: '10px 14px', background: 'rgba(0,0,0,0.018)' }}>
+            <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
+              <span style={{ color: result.failed ? p.danger : p.hubText, fontWeight: 600 }}>
+                {result.completed} completed · {result.failed} failed
+              </span>
+              <span style={{ color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                Backup: {result.backupRoot}
+              </span>
+            </div>
+            {result.items.some((item) => item.message) && (
+              <div style={{ marginTop: 6, color: p.danger, fontSize: 11, lineHeight: 1.45 }}>
+                {result.items.filter((item) => item.message).slice(0, 2).map((item) => `${item.platformId}/${item.id}: ${item.message}`).join(' · ')}
+              </div>
+            )}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
+          <div style={{ fontSize: 12, color: p.text3, flex: 1 }}>
+            {selectedCount} selected for migration
+          </div>
+          {hiddenSkippedCount > 0 && (
+            <button onClick={() => setShowSkipped((value) => !value)} disabled={busy} style={{
+              border: '1px solid ' + p.line, background: showSkipped ? 'rgba(0,0,0,0.04)' : p.panel,
+              color: p.text, borderRadius: 6, padding: '6px 12px',
+              fontSize: 12, cursor: busy ? 'not-allowed' : 'pointer',
+              opacity: busy ? 0.6 : 1, fontFamily: FONT_SANS,
+            }}>{showSkipped ? 'Hide skipped' : `Show skipped ${hiddenSkippedCount}`}</button>
+          )}
+          <button onClick={onRefresh} disabled={busy} style={{
+            border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6,
+            padding: '6px 12px', fontSize: 12, cursor: busy ? 'not-allowed' : 'pointer',
+            opacity: busy ? 0.6 : 1, fontFamily: FONT_SANS,
+          }}>{scanPending ? 'Scanning' : 'Rescan'}</button>
+          <button onClick={onClose} disabled={runPending} style={{
+            border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6,
+            padding: '6px 12px', fontSize: 12, cursor: runPending ? 'not-allowed' : 'pointer',
+            opacity: runPending ? 0.6 : 1, fontFamily: FONT_SANS,
+          }}>{result ? 'Close' : 'Cancel'}</button>
+          <button onClick={onRun} disabled={busy || selectedCount === 0} style={{
+            border: 0, background: p.accent, color: '#fff', borderRadius: 6,
+            padding: '6px 13px', fontSize: 12, fontWeight: 500,
+            cursor: busy || selectedCount === 0 ? 'not-allowed' : 'pointer',
+            opacity: busy || selectedCount === 0 ? 0.55 : 1, fontFamily: FONT_SANS,
+          }}>{runPending ? 'Initializing' : 'Initialize selected'}</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── App ──────────────────────────────────────────────────────────
 const DEFAULT_CONFIG: Config = {
   palette: 'cool', density: 'comfortable', view: 'list',
@@ -884,8 +1128,7 @@ export default function App() {
   const [routePending, setRoutePending] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [importPending, setImportPending] = useState(false);
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
-  const [apiKeyPending, setApiKeyPending] = useState(false);
+  const [sessionApiKey, setSessionApiKey] = useState('');
   const [aiTestPending, setAiTestPending] = useState(false);
   const [aiTest, setAiTest] = useState<AiTestState>(null);
 
@@ -893,8 +1136,15 @@ export default function App() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [importOpen, setImportOpen] = useState(false);
+  const [initOpen, setInitOpen] = useState(false);
+  const [initPreview, setInitPreview] = useState<InitPreview | null>(null);
+  const [initResult, setInitResult] = useState<InitResult | null>(null);
+  const [initSelected, setInitSelected] = useState<Record<string, boolean>>({});
+  const [initScanPending, setInitScanPending] = useState(false);
+  const [initRunPending, setInitRunPending] = useState(false);
 
   const p = PALETTES[config.palette];
+  const apiKeyConfigured = sessionApiKey.trim().length > 0;
 
   const showNotice = useCallback((message: string, tone: NoticeTone = 'error') => {
     setNotice({ id: Date.now(), tone, message });
@@ -928,10 +1178,9 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [pls, cfg, keyStatus] = await Promise.all([api.listPlatforms(), api.getConfig(), api.getApiKeyStatus()]);
+        const [pls, cfg] = await Promise.all([api.listPlatforms(), api.getConfig()]);
         setPlatforms(pls);
         setConfigState(cfg);
-        setApiKeyConfigured(keyStatus.configured);
         await refreshSkills();
       } catch (e) {
         console.error(e);
@@ -977,40 +1226,19 @@ export default function App() {
     setAiTest(null);
   }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
 
-  const saveApiKey = useCallback(async (key: string) => {
-    setApiKeyPending(true);
-    try {
-      const status = await api.setApiKey(key);
-      setApiKeyConfigured(status.configured);
-      setAiTest(null);
-      if (status.configured) {
-        showNotice('API key saved to Keychain.', 'info');
-        return true;
-      }
-      showNotice('API key was not saved.', 'error');
-      return false;
-    } catch (e) {
-      console.error('setApiKey failed', e);
-      showNotice('API key save failed: ' + e);
-      return false;
-    } finally {
-      setApiKeyPending(false);
-    }
+  const useApiKeyForSession = useCallback((key: string) => {
+    const trimmed = key.trim();
+    if (!trimmed) return false;
+    setSessionApiKey(trimmed);
+    setAiTest(null);
+    showNotice('API key is active for this session only.', 'info');
+    return true;
   }, [showNotice]);
 
-  const clearApiKey = useCallback(async () => {
-    setApiKeyPending(true);
-    try {
-      const status = await api.clearApiKey();
-      setApiKeyConfigured(status.configured);
-      setAiTest(null);
-      showNotice('API key cleared.', 'info');
-    } catch (e) {
-      console.error('clearApiKey failed', e);
-      showNotice('API key clear failed: ' + e);
-    } finally {
-      setApiKeyPending(false);
-    }
+  const clearApiKey = useCallback(() => {
+    setSessionApiKey('');
+    setAiTest(null);
+    showNotice('Session API key cleared.', 'info');
   }, [showNotice]);
 
   const testAiConfig = useCallback(async () => {
@@ -1018,7 +1246,7 @@ export default function App() {
     setAiTestPending(true);
     setAiTest(null);
     try {
-      const result = await api.testAiConfig();
+      const result = await api.testAiConfig(sessionApiKey);
       setAiTest({
         tone: 'info',
         message: `${result.provider} / ${result.model}: ${result.response}`,
@@ -1031,7 +1259,75 @@ export default function App() {
     } finally {
       setAiTestPending(false);
     }
-  }, [aiTestPending, showNotice]);
+  }, [aiTestPending, sessionApiKey, showNotice]);
+
+  const loadInitPreview = useCallback(async (clearResult = true) => {
+    if (initScanPending) return;
+    setInitScanPending(true);
+    if (clearResult) setInitResult(null);
+    try {
+      const preview = await api.previewRepositoryInit();
+      setInitPreview(preview);
+      const nextSelected: Record<string, boolean> = {};
+      preview.items.forEach((item) => {
+        if (isInitActionSelectable(item.action)) nextSelected[item.key] = item.selected;
+      });
+      setInitSelected(nextSelected);
+    } catch (e) {
+      console.error('previewRepositoryInit failed', e);
+      showNotice('Repository scan failed: ' + e);
+    } finally {
+      setInitScanPending(false);
+    }
+  }, [initScanPending, showNotice]);
+
+  const openInitRepository = useCallback(() => {
+    setInitOpen(true);
+    void loadInitPreview();
+  }, [loadInitPreview]);
+
+  const toggleInitItem = useCallback((key: string, checked: boolean) => {
+    setInitSelected((current) => ({ ...current, [key]: checked }));
+  }, []);
+
+  const toggleAllInitItems = useCallback((checked: boolean) => {
+    setInitSelected((current) => {
+      const next = { ...current };
+      initPreview?.items.forEach((item) => {
+        if (isInitActionSelectable(item.action)) next[item.key] = checked;
+      });
+      return next;
+    });
+  }, [initPreview]);
+
+  const runInitRepository = useCallback(async () => {
+    if (initRunPending) return;
+    const selectedKeys = Object.entries(initSelected)
+      .filter(([, selected]) => selected)
+      .map(([key]) => key);
+    if (selectedKeys.length === 0) return;
+
+    setInitRunPending(true);
+    setInitResult(null);
+    try {
+      const result = await api.runRepositoryInit(selectedKeys);
+      setInitResult(result);
+      await refreshSkills();
+      setDetails({});
+      showNotice(
+        result.failed
+          ? `Repository initialized with ${result.failed} failed item(s).`
+          : `Repository initialized: ${result.completed} item(s) migrated.`,
+        result.failed ? 'error' : 'info',
+      );
+      await loadInitPreview(false);
+    } catch (e) {
+      console.error('runRepositoryInit failed', e);
+      showNotice('Repository initialization failed: ' + e);
+    } finally {
+      setInitRunPending(false);
+    }
+  }, [initRunPending, initSelected, refreshSkills, showNotice, loadInitPreview]);
 
   const visiblePlatforms = useMemo(
     () => platforms.filter((pl) => !config.hiddenPlatforms.includes(pl.id)),
@@ -1067,7 +1363,7 @@ export default function App() {
       return next;
     });
     try {
-      const summary = await api.generateSummary(id, force);
+      const summary = await api.generateSummary(id, force, sessionApiKey.trim() || undefined);
       setSummaries((current) => ({ ...current, [id]: summary }));
     } catch (e) {
       console.error('generateSummary failed', e);
@@ -1076,7 +1372,7 @@ export default function App() {
     } finally {
       setSummaryPendingId((current) => current === id ? null : current);
     }
-  }, [showNotice]);
+  }, [sessionApiKey, showNotice]);
 
   useEffect(() => {
     const id = selected?.id;
@@ -1189,9 +1485,9 @@ export default function App() {
 
       {active === 'settings' ? (
         <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig}
-          apiKeyConfigured={apiKeyConfigured} apiKeyPending={apiKeyPending}
-          aiTestPending={aiTestPending} aiTest={aiTest}
-          onSaveApiKey={saveApiKey} onClearApiKey={clearApiKey} onTestAi={testAiConfig} />
+          apiKeyConfigured={apiKeyConfigured} aiTestPending={aiTestPending} aiTest={aiTest}
+          onUseApiKey={useApiKeyForSession} onClearApiKey={clearApiKey} onTestAi={testAiConfig}
+          onInitialize={openInitRepository} initializePending={initScanPending} />
       ) : (
         <>
           <div style={{ width: 360, borderRight: '1px solid ' + p.line, display: 'flex', flexDirection: 'column', background: p.panel, flexShrink: 0 }}>
@@ -1205,7 +1501,7 @@ export default function App() {
               {filtered.length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: p.text3, fontSize: 12 }}>
                   {active === 'central'
-                    ? <>No skills in <code style={{ fontFamily: MONO }}>~/.skillloom/skills/</code> yet.<br/>Click ＋ Import to add one.</>
+                    ? <>No skills in <code style={{ fontFamily: MONO }}>~/.skillloom/skills/</code> yet.<br/>Use Initialize to migrate existing platform skills.</>
                     : <>No skills routed here.<br/>Toggle this platform on a skill in Central.</>}
                 </div>
               ) : config.view === 'list' ? (
@@ -1245,6 +1541,20 @@ export default function App() {
       )}
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onAdd={addSkill} pending={importPending} p={p} />
+      <InitRepositoryModal
+        open={initOpen}
+        preview={initPreview}
+        result={initResult}
+        selected={initSelected}
+        scanPending={initScanPending}
+        runPending={initRunPending}
+        onClose={() => setInitOpen(false)}
+        onRefresh={() => loadInitPreview()}
+        onRun={runInitRepository}
+        onToggle={toggleInitItem}
+        onToggleAll={toggleAllInitItems}
+        p={p}
+      />
     </div>
   );
 }

@@ -55,12 +55,63 @@ export interface Config {
   aiModel: string;
 }
 
-export interface ApiKeyStatus {
-  configured: boolean;
-}
-
 export interface AiTestResult {
   provider: AiProvider;
   model: string;
   response: string;
+}
+
+export type InitAction =
+  | 'migrateToCentral'
+  | 'linkExistingCentral'
+  | 'linkPlannedCentral'
+  | 'alreadyRouted'
+  | 'skipConflict'
+  | 'skipInvalid';
+
+export interface InitPreviewItem {
+  key: string;
+  id: string;
+  title: string;
+  platformId: string;
+  platformName: string;
+  platformPath: string;
+  sourcePath: string;
+  contentPath: string;
+  sourceIsSymlink: boolean;
+  targetId: string;
+  targetPath: string;
+  action: InitAction;
+  selected: boolean;
+  message?: string;
+}
+
+export interface InitPreviewSummary {
+  migratable: number;
+  alreadyRouted: number;
+  conflicts: number;
+  skipped: number;
+}
+
+export interface InitPreview {
+  centralPath: string;
+  items: InitPreviewItem[];
+  summary: InitPreviewSummary;
+}
+
+export interface InitRunItem {
+  key: string;
+  id: string;
+  platformId: string;
+  action: InitAction;
+  status: string;
+  message?: string;
+}
+
+export interface InitResult {
+  backupRoot: string;
+  completed: number;
+  skipped: number;
+  failed: number;
+  items: InitRunItem[];
 }

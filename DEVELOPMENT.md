@@ -29,14 +29,14 @@ SkillLoom/
 ```
 
 - 前端已经迁移到 Vite + React 18 + TypeScript。
-- 后端已经实现真实文件系统扫描、SKILL.md metadata 解析、symlink 路由、导入、删除、详情读取、配置持久化、文件监听、Keychain API key 状态和 AI 摘要缓存。
+- 后端已经实现真实文件系统扫描、SKILL.md metadata 解析、symlink 路由、导入、删除、详情读取、配置持久化、文件监听、会话内 API key 请求和 AI 摘要缓存。
 - 路由和删除路径已经做 skill id 校验、canonical path containment、真实目录拒删、冲突 symlink 保护。
 - 前端已经有非阻塞 notice、pending 状态、手动 Refresh、`skills-changed` 自动刷新、API key 设置入口和 AI Summary 状态。
 - macOS `.app` bundle 已开启，可跑本地 unsigned build。
 
 **当前还差三件事：**
 
-1. **真实 API 凭证验证**（保存用户 key 后跑一次 live summary）
+1. **真实 API 凭证验证**（粘贴本次会话 key 后跑一次 live summary）
 2. **可分发的 macOS .app**（Developer ID 签名、notarization）
 3. **CI / release workflow**（PR 验证、tag 打包）
 
@@ -85,7 +85,7 @@ SkillLoom/
 | 序列化 | `serde`, `serde_json` |
 | HTTP（调 Claude API） | macOS `/usr/bin/curl`（避免额外下载依赖；有 key 时才触发） |
 | 本地缓存 DB | macOS `/usr/bin/sqlite3` + `sha2` content hash |
-| 安全存 API key | `keyring`（走 macOS Keychain） |
+| API key | 前端会话内存，调用 AI 时随请求传给 Rust；不落盘、不进 Keychain |
 | 错误处理 | `thiserror` + `anyhow` |
 | 异步运行时 | `tokio`（Tauri 自带） |
 | 日志 | `tracing` + `tracing-subscriber` |
@@ -131,7 +131,7 @@ SkillLoom/
 
 - **文件系统是 single source of truth**，App 不维护自己的 skill 列表，每次需要就 scan
 - **App 自己的状态只存偏好**（主题、隐藏平台、AI provider/endpoint/model、AI 摘要缓存）
-- **API key 只进 Keychain**，不写入 config.json
+- **API key 只留在当前前端会话内存**，不写入 config.json，也不保存到 Keychain
 - **Symlink 是路由的唯一实现**，没有任何"软配置文件"决定路由，避免不一致
 
 ---
@@ -189,7 +189,7 @@ export interface Platform {
 }
 ```
 
-API key 不存这里，走 Keychain（见 §8.3）。
+API key 不存这里，也不走系统钥匙串；Settings 里粘贴后只在当前 App 会话中使用。
 
 ### 5.4 AI 摘要缓存（SQLite）
 
@@ -275,10 +275,10 @@ test_ai_config() -> Result<AiTestResult>
 ```rust
 get_config() -> Config
 update_config(patch: ConfigPatch) -> Result<Config>
-get_api_key() -> Option<String>     // 从 Keychain 读
-set_api_key(key: String) -> Result<()>
+test_ai_config(api_key: String) -> Result<AiTestResult>
+generate_summary(skill_id: String, force: bool, api_key: Option<String>) -> Result<String>
 // config.json 只保存 aiProvider / aiEndpoint / aiModel，不保存 API key
-// Settings 中 endpoint/model 编辑后自动保存；API key 只显示已保存状态，不回显内容
+// Settings 中 endpoint/model 编辑后自动保存；API key 只在当前前端会话内存中保留
 ```
 
 ---
@@ -419,15 +419,13 @@ let app_data = app.path().app_data_dir()?;
 // macOS: ~/Library/Application Support/com.skillloom.app/
 ```
 
-### 8.3 API Key → Keychain
+### 8.3 API Key → Session Memory
 
 ```rust
-use keyring::Entry;
-
-fn set_key(key: &str) -> Result<()> {
-    Entry::new("com.skillloom.app", "anthropic_api_key")?.set_password(key)?;
-    Ok(())
-}
+// 前端把本次会话 key 作为 Tauri command 参数传入；
+// Rust 只用于发起当前请求，不保存、不回显。
+test_ai_config(api_key: String) -> Result<AiTestResult>
+generate_summary(skill_id: String, force: bool, api_key: Option<String>) -> Result<String>
 ```
 
 不要存到 config.json，磁盘明文 = 安全审查不过。
@@ -502,7 +500,7 @@ Tauri 内置 updater：
 - [x] **里程碑**：Import / Delete 按钮真能干活
 
 ### Phase 4 — AI 摘要（1.5 天）
-- [x] Settings 里加 API Key 输入框，存 Keychain
+- [x] Settings 里加 API Key 输入框，仅本次 App 会话内使用
 - [x] Settings 里配置 provider、endpoint 和 model，编辑后自动保存
 - [x] Settings 里提供 AI 连接测试按钮
 - [x] `generate_summary` 按配置调用 Anthropic Messages 或 Chat Completions 兼容端点
@@ -615,10 +613,10 @@ pnpm tauri dev
 | Symlink | 原生 `symlink()` | 原生 `symlink()` | **需要管理员或开发者模式**，否则降级到 hardlink / junction |
 | 配置目录 | `~/Library/Application Support/SkillLoom/` | `~/.config/skillloom/` | `%APPDATA%\SkillLoom\` |
 | 中央目录默认 | `~/.skillloom/skills/` | 同 | `%USERPROFILE%\.skillloom\skills\` |
-| 密钥存储 | Keychain | Secret Service (libsecret) | Credential Manager |
+| 密钥存储 | 不持久化，仅会话内存 | 不持久化，仅会话内存 | 不持久化，仅会话内存 |
 | 代码签名 | Developer ID + notarize | 一般不签 | Authenticode 证书 |
 
-Tauri + `dirs` + `keyring` 三个库已经把上面大部分平台差异封装好，**业务代码不用 cfg**，只在打包阶段切目标。
+Tauri + `dirs` 已经把上面大部分平台差异封装好，**业务代码不用 cfg**，只在打包阶段切目标。
 
 ### 11.2 Windows 的关键决策
 
@@ -673,7 +671,7 @@ pnpm tauri dev
 2. **ADR-002：Symlink 作为路由唯一实现** —— filesystem 是 truth，避免与配置文件不一致
 3. **ADR-003：不上 App Store** —— sandbox 与读取任意 dotfile 不兼容
 4. **ADR-004：AI 摘要懒生成 + content_hash 缓存** —— 见 §5.4
-5. **ADR-005：API Key 走 Keychain，不存 config.json** —— 见 §8.3
+5. **ADR-005：API Key 只保留在会话内存，不持久化** —— 见 §8.3
 
 ---
 
@@ -684,4 +682,3 @@ pnpm tauri dev
 - macOS Codesigning + Notarization：https://developer.apple.com/documentation/security/notarizing-macos-software-before-distribution
 - `tauri-action`（GitHub Actions 一站式打包）：https://github.com/tauri-apps/tauri-action
 - `notify` crate（文件监听）：https://docs.rs/notify/
-- `keyring` crate（跨平台密钥存储）：https://docs.rs/keyring/

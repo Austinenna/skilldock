@@ -1,7 +1,6 @@
 use crate::config;
 use crate::error::{AppError, Result};
 use crate::skills;
-use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -11,8 +10,6 @@ use std::process::{Command, Stdio};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::Manager;
 
-const KEYRING_SERVICE: &str = "com.skillloom.desktop";
-const API_KEY_ACCOUNT: &str = "ai_api_key";
 const DEFAULT_ANTHROPIC_ENDPOINT: &str = "https://api.minimaxi.com/anthropic/v1/messages";
 const DEFAULT_ANTHROPIC_MODEL: &str = "MiniMax-M2.7";
 const DEFAULT_CHAT_ENDPOINT: &str = "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions";
@@ -73,29 +70,16 @@ struct AiRequestConfig {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ApiKeyStatus {
-    pub configured: bool,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct AiTestResult {
     pub provider: String,
     pub model: String,
     pub response: String,
 }
 
-fn api_key_entry() -> Result<Entry> {
-    Ok(Entry::new(KEYRING_SERVICE, API_KEY_ACCOUNT)?)
-}
-
-pub fn read_api_key() -> Result<Option<String>> {
-    match api_key_entry()?.get_password() {
-        Ok(key) if !key.trim().is_empty() => Ok(Some(key)),
-        Ok(_) => Ok(None),
-        Err(KeyringError::NoEntry) => Ok(None),
-        Err(error) => Err(error.into()),
-    }
+fn clean_api_key(api_key: Option<String>) -> Option<String> {
+    api_key
+        .map(|key| key.trim().to_string())
+        .filter(|key| !key.is_empty())
 }
 
 fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf> {
@@ -555,38 +539,12 @@ fn request_test_message(api_key: &str, config: &AiRequestConfig) -> Result<Strin
 }
 
 #[tauri::command]
-pub fn get_api_key_status() -> Result<ApiKeyStatus> {
-    Ok(ApiKeyStatus {
-        configured: read_api_key()?.is_some(),
-    })
-}
-
-#[tauri::command]
-pub fn set_api_key(key: String) -> Result<ApiKeyStatus> {
-    let trimmed = key.trim();
-    if trimmed.is_empty() {
-        clear_api_key()
-    } else {
-        api_key_entry()?.set_password(trimmed)?;
-        Ok(ApiKeyStatus { configured: true })
-    }
-}
-
-#[tauri::command]
-pub fn clear_api_key() -> Result<ApiKeyStatus> {
-    match api_key_entry()?.delete_credential() {
-        Ok(()) | Err(KeyringError::NoEntry) => get_api_key_status(),
-        Err(error) => Err(error.into()),
-    }
-}
-
-#[tauri::command]
-pub fn test_ai_config(app: tauri::AppHandle) -> Result<AiTestResult> {
+pub fn test_ai_config(app: tauri::AppHandle, api_key: String) -> Result<AiTestResult> {
     let config = config::read_config(&app)?;
     let ai_config = resolve_ai_config(&config);
-    let Some(api_key) = read_api_key()? else {
+    let Some(api_key) = clean_api_key(Some(api_key)) else {
         return Err(AppError::Ai(
-            "API key is not configured. Save one in Settings first.".into(),
+            "API key is not configured. Paste one in Settings for this session first.".into(),
         ));
     };
     let response = request_test_message(&api_key, &ai_config)?;
@@ -598,7 +556,12 @@ pub fn test_ai_config(app: tauri::AppHandle) -> Result<AiTestResult> {
 }
 
 #[tauri::command]
-pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) -> Result<String> {
+pub fn generate_summary(
+    app: tauri::AppHandle,
+    skill_id: String,
+    force: bool,
+    api_key: Option<String>,
+) -> Result<String> {
     let detail = skills::get_skill_detail(skill_id.clone())?;
     let hash = content_hash(&detail.skill_md);
     let conn = open_cache(&app)?;
@@ -611,10 +574,10 @@ pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) ->
         }
     }
 
-    let Some(api_key) = read_api_key()? else {
+    let Some(api_key) = clean_api_key(api_key) else {
         if force {
             return Err(AppError::Ai(
-                "API key is not configured. Save one in Settings first.".into(),
+                "API key is not configured. Paste one in Settings for this session first.".into(),
             ));
         }
         return Ok(detail.skill.tagline);

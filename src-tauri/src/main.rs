@@ -6,6 +6,7 @@ mod ai;
 mod config;
 mod error;
 mod platforms;
+mod repository_init;
 mod routes;
 mod skills;
 mod watcher;
@@ -19,15 +20,14 @@ fn main() {
         })
         .invoke_handler(tauri::generate_handler![
             platforms::list_platforms,
+            repository_init::preview_repository_init,
+            repository_init::run_repository_init,
             skills::scan_skills,
             skills::get_skill_detail,
             skills::import_skill,
             skills::delete_skill,
             routes::add_route,
             routes::remove_route,
-            ai::get_api_key_status,
-            ai::set_api_key,
-            ai::clear_api_key,
             ai::test_ai_config,
             ai::generate_summary,
             config::get_config,
