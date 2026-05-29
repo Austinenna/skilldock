@@ -565,11 +565,11 @@ pub fn get_api_key_status() -> Result<ApiKeyStatus> {
 pub fn set_api_key(key: String) -> Result<ApiKeyStatus> {
     let trimmed = key.trim();
     if trimmed.is_empty() {
-        clear_api_key()?;
+        clear_api_key()
     } else {
         api_key_entry()?.set_password(trimmed)?;
+        Ok(ApiKeyStatus { configured: true })
     }
-    get_api_key_status()
 }
 
 #[tauri::command]

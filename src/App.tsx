@@ -560,9 +560,10 @@ function Segmented<T extends string>({ value, options, onChange, p }: {
 function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, aiTestPending, aiTest, onSaveApiKey, onClearApiKey, onTestAi }: {
   p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => Promise<void>;
   apiKeyConfigured: boolean; apiKeyPending: boolean; aiTestPending: boolean; aiTest: AiTestState;
-  onSaveApiKey: (key: string) => void; onClearApiKey: () => void; onTestAi: () => Promise<void>;
+  onSaveApiKey: (key: string) => Promise<boolean>; onClearApiKey: () => void; onTestAi: () => Promise<void>;
 }) {
   const [apiKey, setApiKey] = useState('');
+  const [apiKeyMessage, setApiKeyMessage] = useState<AiTestState>(null);
   const [aiEndpoint, setAiEndpoint] = useState(config.aiEndpoint);
   const [aiModel, setAiModel] = useState(config.aiModel);
   useEffect(() => {
@@ -595,6 +596,20 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
   const testCurrentAiConfig = async () => {
     await setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
     await onTestAi();
+  };
+  const saveCurrentApiKey = async () => {
+    setApiKeyMessage(null);
+    const saved = await onSaveApiKey(apiKey);
+    if (saved) {
+      setApiKey('');
+      setApiKeyMessage({ tone: 'info', message: 'Key saved. You can now run Test or Regenerate.' });
+    } else {
+      setApiKeyMessage({ tone: 'error', message: 'Key was not saved. Check Keychain permission or paste the key again.' });
+    }
+  };
+  const clearCurrentApiKey = () => {
+    setApiKeyMessage(null);
+    onClearApiKey();
   };
 
   return (
@@ -719,12 +734,12 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
               </div>
               <input value={apiKey} disabled={apiKeyPending} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
                 style={{ width: 220, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 12, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-              <button onClick={() => { onSaveApiKey(apiKey); setApiKey(''); }} disabled={apiKeyPending || !apiKey.trim()} style={{
+              <button onClick={saveCurrentApiKey} disabled={apiKeyPending || !apiKey.trim()} style={{
                 border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
                 fontSize: 12, cursor: apiKeyPending || !apiKey.trim() ? 'not-allowed' : 'pointer',
                 opacity: apiKeyPending || !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>{apiKeyPending ? 'Saving' : 'Save'}</button>
-              <button onClick={onClearApiKey} disabled={apiKeyPending || !apiKeyConfigured} style={{
+              <button onClick={clearCurrentApiKey} disabled={apiKeyPending || !apiKeyConfigured} style={{
                 border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
                 fontSize: 12, cursor: apiKeyPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
                 opacity: apiKeyPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
@@ -735,6 +750,15 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
                 opacity: apiKeyPending || aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>{aiTestPending ? 'Testing' : 'Test'}</button>
             </div>
+            {apiKeyMessage && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'start', padding: '10px 14px', borderTop: '1px solid ' + p.lineSoft }}>
+                <div />
+                <div style={{
+                  color: apiKeyMessage.tone === 'info' ? p.hubText : p.danger,
+                  fontSize: 11, lineHeight: 1.5,
+                }}>{apiKeyMessage.message}</div>
+              </div>
+            )}
             {aiTest && (
               <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'start', padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
                 <div>
@@ -959,10 +983,16 @@ export default function App() {
       const status = await api.setApiKey(key);
       setApiKeyConfigured(status.configured);
       setAiTest(null);
-      showNotice('API key saved to Keychain.', 'info');
+      if (status.configured) {
+        showNotice('API key saved to Keychain.', 'info');
+        return true;
+      }
+      showNotice('API key was not saved.', 'error');
+      return false;
     } catch (e) {
       console.error('setApiKey failed', e);
       showNotice('API key save failed: ' + e);
+      return false;
     } finally {
       setApiKeyPending(false);
     }

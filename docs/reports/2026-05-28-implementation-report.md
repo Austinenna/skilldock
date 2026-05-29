@@ -362,3 +362,24 @@
 - `pnpm tauri build`
 - 结果：离线 Rust check 通过；19 个 Rust 测试通过；前端生产构建通过；macOS unsigned `.app` 打包通过。
 - 备注：本步骤不会提交或写入任何真实 API key，连接测试仅由用户在 App 内手动触发。
+
+## 任务 16：修复 API key 保存状态显示
+
+提交目标：`fix: confirm api key save state`
+
+修改文件：
+- `src-tauri/src/ai.rs`
+- `src/App.tsx`
+- `docs/reports/2026-05-28-implementation-report.md`
+
+修改内容：
+- 后端 `set_api_key` 在 Keychain 写入成功后直接返回 `configured=true`，避免保存成功后界面仍显示未保存。
+- 前端保存 API key 时等待后端结果，只有确认成功后才清空输入框。
+- API key 区域增加保存结果提示；保存失败时保留输入内容，方便用户重试。
+
+验证：
+- `rustfmt src-tauri/src/ai.rs`
+- `cargo check --offline`
+- `cargo test --offline`
+- `pnpm build`
+- 结果：离线 Rust check 通过；19 个 Rust 测试通过；前端生产构建通过。
