@@ -38,6 +38,8 @@ interface AppNotice {
   message: string;
 }
 
+type AiTestState = { tone: NoticeTone; message: string } | null;
+
 // ─── small helpers ────────────────────────────────────────────────
 function useFontLink() {
   useEffect(() => {
@@ -371,6 +373,7 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
   useEffect(() => { setConfirmDel(false); }, [skill.id]);
 
   const fileBadge = detail ? String(detail.files.length) : (detailLoading ? 'loading' : String(skill.files));
+  const summaryBoxIsError = Boolean(summaryError);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: p.panel }}>
@@ -418,10 +421,10 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
         )}>
         <div style={{ padding: '4px 28px 20px' }}>
           <div style={{
-            fontSize: 13, lineHeight: 1.6, color: p.text3,
+            fontSize: 13, lineHeight: 1.6, color: summaryBoxIsError ? p.danger : p.text3,
             padding: '14px 16px', borderRadius: 10,
-            background: 'linear-gradient(180deg, ' + p.accentSoft + ', ' + p.accentSoft.replace(/0\.\d+/, '0.03') + ')',
-            border: '1px solid ' + p.accentSoft,
+            background: summaryBoxIsError ? 'rgba(255,59,48,0.06)' : 'linear-gradient(180deg, ' + p.accentSoft + ', ' + p.accentSoft.replace(/0\.\d+/, '0.03') + ')',
+            border: '1px solid ' + (summaryBoxIsError ? 'rgba(255,59,48,0.22)' : p.accentSoft),
             fontStyle: paletteKey === 'warm' ? 'italic' : 'normal',
             fontFamily: paletteKey === 'warm' ? FONT_DISPLAY_WARM : FONT_SANS,
             ...(paletteKey === 'warm' ? { fontSize: 16 } : {}),
@@ -554,10 +557,10 @@ function Segmented<T extends string>({ value, options, onChange, p }: {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────
-function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, onSaveApiKey, onClearApiKey }: {
-  p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => void;
-  apiKeyConfigured: boolean; apiKeyPending: boolean;
-  onSaveApiKey: (key: string) => void; onClearApiKey: () => void;
+function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, aiTestPending, aiTest, onSaveApiKey, onClearApiKey, onTestAi }: {
+  p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => Promise<void>;
+  apiKeyConfigured: boolean; apiKeyPending: boolean; aiTestPending: boolean; aiTest: AiTestState;
+  onSaveApiKey: (key: string) => void; onClearApiKey: () => void; onTestAi: () => Promise<void>;
 }) {
   const [apiKey, setApiKey] = useState('');
   const [aiEndpoint, setAiEndpoint] = useState(config.aiEndpoint);
@@ -580,8 +583,18 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
     setAiModel(preset.model);
     setConfig({ aiProvider: provider, aiEndpoint: preset.endpoint, aiModel: preset.model });
   };
-  const saveAiConfig = () => {
-    setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
+  useEffect(() => {
+    const endpoint = aiEndpoint.trim();
+    const model = aiModel.trim();
+    if (endpoint === config.aiEndpoint && model === config.aiModel) return;
+    const timeout = window.setTimeout(() => {
+      setConfig({ aiEndpoint: endpoint, aiModel: model });
+    }, 500);
+    return () => window.clearTimeout(timeout);
+  }, [aiEndpoint, aiModel, config.aiEndpoint, config.aiModel, setConfig]);
+  const testCurrentAiConfig = async () => {
+    await setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
+    await onTestAi();
   };
 
   return (
@@ -683,7 +696,7 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
             <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
               <div>
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Endpoint</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Full URL, such as a messages or chat/completions endpoint.</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Full URL, saved automatically after editing.</div>
               </div>
               <input value={aiEndpoint} onChange={(e) => setAiEndpoint(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].endpoint}
                 style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
@@ -691,22 +704,17 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
             <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
               <div>
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Model</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Used when a summary is regenerated.</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Used for testing and summary regeneration.</div>
               </div>
-              <div style={{ display: 'flex', gap: 6 }}>
-                <input value={aiModel} onChange={(e) => setAiModel(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].model}
-                  style={{ minWidth: 0, flex: 1, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-                <button onClick={saveAiConfig} style={{
-                  border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 9px',
-                  fontSize: 11, cursor: 'pointer', fontFamily: FONT_SANS,
-                }}>Apply</button>
-              </div>
+              <input value={aiModel} onChange={(e) => setAiModel(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].model}
+                style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
-                <div style={{ fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
-                  {apiKeyConfigured ? 'Stored in macOS Keychain.' : (config.aiProvider === 'chat' ? 'Sent as api-key.' : 'Sent as x-api-key.')}
+                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
+                  <span style={{ width: 6, height: 6, borderRadius: 3, background: apiKeyConfigured ? p.hub : p.text3, display: 'inline-block' }} />
+                  {apiKeyConfigured ? 'Saved in macOS Keychain. Hidden for security.' : (config.aiProvider === 'chat' ? 'No key stored. Sent as api-key.' : 'No key stored. Sent as x-api-key.')}
                 </div>
               </div>
               <input value={apiKey} disabled={apiKeyPending} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
@@ -721,7 +729,26 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
                 fontSize: 12, cursor: apiKeyPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
                 opacity: apiKeyPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>Clear</button>
+              <button onClick={testCurrentAiConfig} disabled={apiKeyPending || aiTestPending || !apiKeyConfigured} style={{
+                border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
+                fontSize: 12, cursor: apiKeyPending || aiTestPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: apiKeyPending || aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>{aiTestPending ? 'Testing' : 'Test'}</button>
             </div>
+            {aiTest && (
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'start', padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
+                <div>
+                  <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Test result</div>
+                  <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Latest connection check.</div>
+                </div>
+                <div style={{
+                  border: '1px solid ' + (aiTest.tone === 'info' ? p.hubSoft : 'rgba(255,59,48,0.22)'),
+                  background: aiTest.tone === 'info' ? 'rgba(52,199,89,0.08)' : 'rgba(255,59,48,0.06)',
+                  color: aiTest.tone === 'info' ? p.hubText : p.danger,
+                  borderRadius: 6, padding: '7px 9px', fontSize: 11, lineHeight: 1.5,
+                }}>{aiTest.message}</div>
+              </div>
+            )}
           </div>
         </div>
 
@@ -835,6 +862,8 @@ export default function App() {
   const [importPending, setImportPending] = useState(false);
   const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
   const [apiKeyPending, setApiKeyPending] = useState(false);
+  const [aiTestPending, setAiTestPending] = useState(false);
+  const [aiTest, setAiTest] = useState<AiTestState>(null);
 
   const [active, setActive] = useState('central');
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -920,11 +949,16 @@ export default function App() {
     }
   }, [showNotice]);
 
+  useEffect(() => {
+    setAiTest(null);
+  }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
+
   const saveApiKey = useCallback(async (key: string) => {
     setApiKeyPending(true);
     try {
       const status = await api.setApiKey(key);
       setApiKeyConfigured(status.configured);
+      setAiTest(null);
       showNotice('API key saved to Keychain.', 'info');
     } catch (e) {
       console.error('setApiKey failed', e);
@@ -939,6 +973,7 @@ export default function App() {
     try {
       const status = await api.clearApiKey();
       setApiKeyConfigured(status.configured);
+      setAiTest(null);
       showNotice('API key cleared.', 'info');
     } catch (e) {
       console.error('clearApiKey failed', e);
@@ -947,6 +982,26 @@ export default function App() {
       setApiKeyPending(false);
     }
   }, [showNotice]);
+
+  const testAiConfig = useCallback(async () => {
+    if (aiTestPending) return;
+    setAiTestPending(true);
+    setAiTest(null);
+    try {
+      const result = await api.testAiConfig();
+      setAiTest({
+        tone: 'info',
+        message: `${result.provider} / ${result.model}: ${result.response}`,
+      });
+      showNotice('AI connection test succeeded.', 'info');
+    } catch (e) {
+      console.error('testAiConfig failed', e);
+      setAiTest({ tone: 'error', message: String(e) });
+      showNotice('AI connection test failed: ' + e);
+    } finally {
+      setAiTestPending(false);
+    }
+  }, [aiTestPending, showNotice]);
 
   const visiblePlatforms = useMemo(
     () => platforms.filter((pl) => !config.hiddenPlatforms.includes(pl.id)),
@@ -1105,7 +1160,8 @@ export default function App() {
       {active === 'settings' ? (
         <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig}
           apiKeyConfigured={apiKeyConfigured} apiKeyPending={apiKeyPending}
-          onSaveApiKey={saveApiKey} onClearApiKey={clearApiKey} />
+          aiTestPending={aiTestPending} aiTest={aiTest}
+          onSaveApiKey={saveApiKey} onClearApiKey={clearApiKey} onTestAi={testAiConfig} />
       ) : (
         <>
           <div style={{ width: 360, borderRight: '1px solid ' + p.line, display: 'flex', flexDirection: 'column', background: p.panel, flexShrink: 0 }}>

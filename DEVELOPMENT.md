@@ -206,7 +206,7 @@ CREATE TABLE ai_summary (
 );
 ```
 
-读取缓存时会额外按 `model` 字段过滤，字段内容包含 provider 前缀（例如 `anthropic:MiniMax-M2.7` 或 `chat:mimo-v2.5-pro`），避免切换 provider/model 后误用旧摘要。
+读取缓存时会额外按 `model` 字段过滤，字段内容包含 provider、model 和 endpoint hash（例如 `anthropic:MiniMax-M2.7:<hash>`），避免切换 provider/model/endpoint 后误用旧摘要。
 
 ---
 
@@ -253,7 +253,9 @@ delete_skill(id: String) -> Result<()>
 
 ```rust
 generate_summary(skill_id: String, force: bool) -> Result<String>
-// force=false 时优先读当前 provider/model 对应缓存
+// force=false 时优先读当前 provider/model/endpoint 对应缓存
+test_ai_config() -> Result<AiTestResult>
+// 使用当前 provider/endpoint/model/API key 发送一条短测试请求
 // provider=anthropic 时发 Anthropic Messages 请求，使用 x-api-key
 // provider=chat 时发 Chat Completions 请求，使用 api-key
 ```
@@ -276,6 +278,7 @@ update_config(patch: ConfigPatch) -> Result<Config>
 get_api_key() -> Option<String>     // 从 Keychain 读
 set_api_key(key: String) -> Result<()>
 // config.json 只保存 aiProvider / aiEndpoint / aiModel，不保存 API key
+// Settings 中 endpoint/model 编辑后自动保存；API key 只显示已保存状态，不回显内容
 ```
 
 ---
@@ -500,10 +503,11 @@ Tauri 内置 updater：
 
 ### Phase 4 — AI 摘要（1.5 天）
 - [x] Settings 里加 API Key 输入框，存 Keychain
-- [x] Settings 里配置 provider、endpoint 和 model
+- [x] Settings 里配置 provider、endpoint 和 model，编辑后自动保存
+- [x] Settings 里提供 AI 连接测试按钮
 - [x] `generate_summary` 按配置调用 Anthropic Messages 或 Chat Completions 兼容端点
-- [x] SQLite 缓存按 content_hash + provider/model 命中
-- [x] 失败/无 key 时降级到 SKILL.md 原始描述
+- [x] SQLite 缓存按 content_hash + provider/model/endpoint 命中
+- [x] 自动摘要无 key 时降级到 SKILL.md 原始描述；手动 Regenerate 无 key 时给出明确错误
 - [ ] **里程碑**：配置真实 API key 后验证每个 skill 都有像样的摘要
 
 ### Phase 5 — 文件监听（1 天）
@@ -538,7 +542,7 @@ Tauri 内置 updater：
 
 ## 9.1 当前限制
 
-- AI 摘要的 live API 请求需要用户自行配置 provider、endpoint、model 和 API key；当前本地验证不提交任何真实密钥。
+- AI 摘要的 live API 请求需要用户自行配置 provider、endpoint、model 和 API key；Settings 可测试连接，当前本地验证不提交任何真实密钥。
 - `notify` watcher 在启动时读取一次隐藏平台配置；运行中改变可见平台后，手动 Refresh 仍是兜底。
 - macOS `.app` bundle 已开启，但当前只适合本机 unsigned build；正式分发还需要签名、notarization 和 DMG/release 流程。
 - 还没有 GitHub Actions CI，发布流程需要在 Phase 7 补齐。

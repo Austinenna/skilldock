@@ -58,3 +58,9 @@ export interface Config {
 export interface ApiKeyStatus {
   configured: boolean;
 }
+
+export interface AiTestResult {
+  provider: AiProvider;
+  model: string;
+  response: string;
+}

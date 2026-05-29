@@ -330,3 +330,35 @@
 - `pnpm tauri build`
 - 结果：离线 Rust check 通过；17 个 Rust 测试通过；前端生产构建通过；macOS unsigned `.app` 打包通过。
 - 备注：本步骤没有提交或写入任何真实 API key，也没有触发 live API 请求。
+
+## 任务 15：优化 AI 配置与测试体验
+
+提交目标：`fix: improve ai configuration flow`
+
+修改文件：
+- `src-tauri/src/ai.rs`
+- `src-tauri/src/main.rs`
+- `src/types.ts`
+- `src/ipc.ts`
+- `src/App.tsx`
+- `README.md`
+- `DEVELOPMENT.md`
+- `docs/reports/2026-05-28-implementation-report.md`
+
+修改内容：
+- 移除 Settings 中 endpoint/model 旁边的 `Apply` 按钮，改为编辑后自动保存。
+- API key 区域增加明确的 Keychain 保存状态提示；仍不回显密钥内容。
+- 新增 `test_ai_config` 后端命令和前端 `Test` 按钮，用当前 provider、endpoint、model 和 Keychain API key 发送一条短测试请求。
+- 手动点击 `Regenerate` 时，如果没有保存 API key，改为显示明确错误；自动摘要加载仍可降级到原始 description。
+- AI 摘要缓存的 model 标签加入 endpoint hash，避免同模型不同 endpoint 时误用旧缓存。
+- AI 请求超时时间从 45 秒放宽到 120 秒，减少慢模型误判失败。
+- 增加 Anthropic Messages 和 Chat Completions 响应解析单元测试。
+
+验证：
+- `rustfmt src-tauri/src/ai.rs src-tauri/src/main.rs`
+- `cargo check --offline`
+- `cargo test --offline`
+- `pnpm build`
+- `pnpm tauri build`
+- 结果：离线 Rust check 通过；19 个 Rust 测试通过；前端生产构建通过；macOS unsigned `.app` 打包通过。
+- 备注：本步骤不会提交或写入任何真实 API key，连接测试仅由用户在 App 内手动触发。

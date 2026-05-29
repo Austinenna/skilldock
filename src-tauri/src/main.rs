@@ -28,6 +28,7 @@ fn main() {
             ai::get_api_key_status,
             ai::set_api_key,
             ai::clear_api_key,
+            ai::test_ai_config,
             ai::generate_summary,
             config::get_config,
             config::update_config,

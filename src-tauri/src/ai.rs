@@ -48,10 +48,18 @@ impl AiProvider {
         }
     }
 
-    fn cache_model_label(self, model: &str) -> String {
+    fn cache_model_label(self, model: &str, endpoint: &str) -> String {
+        let endpoint_hash = content_hash(endpoint);
         match self {
-            Self::Anthropic => format!("anthropic:{model}"),
-            Self::ChatCompletions => format!("chat:{model}"),
+            Self::Anthropic => format!("anthropic:{model}:{endpoint_hash}"),
+            Self::ChatCompletions => format!("chat:{model}:{endpoint_hash}"),
+        }
+    }
+
+    fn as_config_value(self) -> &'static str {
+        match self {
+            Self::Anthropic => "anthropic",
+            Self::ChatCompletions => "chat",
         }
     }
 }
@@ -67,6 +75,14 @@ struct AiRequestConfig {
 #[serde(rename_all = "camelCase")]
 pub struct ApiKeyStatus {
     pub configured: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiTestResult {
+    pub provider: String,
+    pub model: String,
+    pub response: String,
 }
 
 fn api_key_entry() -> Result<Entry> {
@@ -312,7 +328,7 @@ fn resolve_ai_config(config: &config::Config) -> AiRequestConfig {
     let provider = AiProvider::from_config(&config.ai_provider);
     let endpoint = configured_value(&config.ai_endpoint, provider.default_endpoint());
     let model = configured_value(&config.ai_model, provider.default_model());
-    let model_label = provider.cache_model_label(&model);
+    let model_label = provider.cache_model_label(&model, &endpoint);
     AiRequestConfig {
         provider,
         endpoint,
@@ -349,7 +365,7 @@ fn request_with_curl(endpoint: &str, headers: &[(&str, String)], body: &[u8]) ->
         .arg("--show-error")
         .arg("--fail-with-body")
         .arg("--max-time")
-        .arg("45")
+        .arg("120")
         .arg("--config")
         .arg("-")
         .stdin(Stdio::piped())
@@ -416,20 +432,20 @@ fn text_from_chat_response(body: &[u8]) -> Result<String> {
         .ok_or_else(|| AppError::Ai("chat completion response did not contain text".into()))
 }
 
-fn request_anthropic_summary(
+fn request_anthropic_prompt(
     api_key: &str,
     endpoint: &str,
     model: &str,
-    skill_id: &str,
-    skill_md: &str,
+    prompt: String,
+    max_tokens: u32,
 ) -> Result<String> {
     let request = AnthropicRequest {
         model: model.into(),
-        max_tokens: 180,
-        system: "You write concise, accurate summaries of AI agent skills.".into(),
+        max_tokens,
+        system: "You write concise, accurate responses for SkillLoom.".into(),
         messages: vec![AnthropicMessage {
             role: "user".into(),
-            content: summary_prompt(skill_id, skill_md),
+            content: prompt,
         }],
     };
     let body = serde_json::to_vec(&request)?;
@@ -445,20 +461,20 @@ fn request_anthropic_summary(
     text_from_anthropic_response(&response)
 }
 
-fn request_chat_summary(
+fn request_chat_prompt(
     api_key: &str,
     endpoint: &str,
     model: &str,
-    skill_id: &str,
-    skill_md: &str,
+    prompt: String,
+    max_tokens: u32,
 ) -> Result<String> {
     let request = ChatCompletionsRequest {
         model: model.into(),
         messages: vec![ChatMessage {
             role: "user".into(),
-            content: summary_prompt(skill_id, skill_md),
+            content: prompt,
         }],
-        max_completion_tokens: 180,
+        max_completion_tokens: max_tokens,
         temperature: 0.3,
         top_p: 0.95,
         stream: false,
@@ -478,6 +494,38 @@ fn request_chat_summary(
     text_from_chat_response(&response)
 }
 
+fn request_anthropic_summary(
+    api_key: &str,
+    endpoint: &str,
+    model: &str,
+    skill_id: &str,
+    skill_md: &str,
+) -> Result<String> {
+    request_anthropic_prompt(
+        api_key,
+        endpoint,
+        model,
+        summary_prompt(skill_id, skill_md),
+        180,
+    )
+}
+
+fn request_chat_summary(
+    api_key: &str,
+    endpoint: &str,
+    model: &str,
+    skill_id: &str,
+    skill_md: &str,
+) -> Result<String> {
+    request_chat_prompt(
+        api_key,
+        endpoint,
+        model,
+        summary_prompt(skill_id, skill_md),
+        180,
+    )
+}
+
 fn request_summary(
     api_key: &str,
     config: &AiRequestConfig,
@@ -490,6 +538,18 @@ fn request_summary(
         }
         AiProvider::ChatCompletions => {
             request_chat_summary(api_key, &config.endpoint, &config.model, skill_id, skill_md)
+        }
+    }
+}
+
+fn request_test_message(api_key: &str, config: &AiRequestConfig) -> Result<String> {
+    let prompt = "请只用一句中文回复：连接成功。".to_string();
+    match config.provider {
+        AiProvider::Anthropic => {
+            request_anthropic_prompt(api_key, &config.endpoint, &config.model, prompt, 96)
+        }
+        AiProvider::ChatCompletions => {
+            request_chat_prompt(api_key, &config.endpoint, &config.model, prompt, 96)
         }
     }
 }
@@ -521,6 +581,23 @@ pub fn clear_api_key() -> Result<ApiKeyStatus> {
 }
 
 #[tauri::command]
+pub fn test_ai_config(app: tauri::AppHandle) -> Result<AiTestResult> {
+    let config = config::read_config(&app)?;
+    let ai_config = resolve_ai_config(&config);
+    let Some(api_key) = read_api_key()? else {
+        return Err(AppError::Ai(
+            "API key is not configured. Save one in Settings first.".into(),
+        ));
+    };
+    let response = request_test_message(&api_key, &ai_config)?;
+    Ok(AiTestResult {
+        provider: ai_config.provider.as_config_value().into(),
+        model: ai_config.model,
+        response,
+    })
+}
+
+#[tauri::command]
 pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) -> Result<String> {
     let detail = skills::get_skill_detail(skill_id.clone())?;
     let hash = content_hash(&detail.skill_md);
@@ -535,6 +612,11 @@ pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) ->
     }
 
     let Some(api_key) = read_api_key()? else {
+        if force {
+            return Err(AppError::Ai(
+                "API key is not configured. Save one in Settings first.".into(),
+            ));
+        }
         return Ok(detail.skill.tagline);
     };
 
@@ -545,7 +627,7 @@ pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) ->
 
 #[cfg(test)]
 mod tests {
-    use super::sql_literal;
+    use super::{sql_literal, text_from_anthropic_response, text_from_chat_response};
 
     #[test]
     fn quotes_sqlite_string_literals() {
@@ -556,5 +638,18 @@ mod tests {
     #[test]
     fn rejects_nul_in_sqlite_literals() {
         assert!(sql_literal("bad\0value").is_err());
+    }
+
+    #[test]
+    fn parses_anthropic_text_response() {
+        let body = br#"{"content":[{"type":"text","text":"  connection ok  "}]}"#;
+        assert_eq!(text_from_anthropic_response(body).unwrap(), "connection ok");
+    }
+
+    #[test]
+    fn parses_chat_completion_text_response() {
+        let body =
+            br#"{"choices":[{"message":{"role":"assistant","content":"  connection ok  "}}]}"#;
+        assert_eq!(text_from_chat_response(body).unwrap(), "connection ok");
     }
 }

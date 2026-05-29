@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Platform, Skill, Config, SkillDetail, ApiKeyStatus } from './types';
+import type { Platform, Skill, Config, SkillDetail, ApiKeyStatus, AiTestResult } from './types';
 
 export const api = {
   listPlatforms: () => invoke<Platform[]>('list_platforms'),
@@ -18,6 +18,7 @@ export const api = {
   getApiKeyStatus: () => invoke<ApiKeyStatus>('get_api_key_status'),
   setApiKey: (key: string) => invoke<ApiKeyStatus>('set_api_key', { key }),
   clearApiKey: () => invoke<ApiKeyStatus>('clear_api_key'),
+  testAiConfig: () => invoke<AiTestResult>('test_ai_config'),
   generateSummary: (skillId: string, force = false) =>
     invoke<string>('generate_summary', { skillId, force }),
 };
