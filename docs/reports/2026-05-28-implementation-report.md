@@ -383,3 +383,22 @@
 - `cargo test --offline`
 - `pnpm build`
 - 结果：离线 Rust check 通过；19 个 Rust 测试通过；前端生产构建通过。
+
+## 任务 17：启用 macOS 原生 Keychain
+
+提交目标：`fix: use native macos keychain`
+
+修改文件：
+- `src-tauri/Cargo.toml`
+- `src-tauri/Cargo.lock`
+- `docs/reports/2026-05-28-implementation-report.md`
+
+修改内容：
+- 为 `keyring` 依赖开启 `apple-native` feature，确保 API key 真实写入 macOS Keychain。
+- 修复未开启 native feature 时使用 mock store 导致“保存后 UI 变绿，但后续 Test / Regenerate 读不到 key”的问题。
+
+验证：
+- `cargo check`
+- `cargo test --offline`
+- `pnpm build`
+- 结果：联网拉取 `security-framework` 依赖后 Rust check 通过；19 个 Rust 测试通过；前端生产构建通过。
