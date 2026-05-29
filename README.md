@@ -16,13 +16,14 @@
 - 非阻塞错误通知和操作 pending 状态
 - 三套主题、列表/网格视图、紧凑/舒适密度（持久化到 `~/Library/Application Support/com.skillloom.desktop/config.json`）
 - API key 可存到 macOS Keychain，前端只读取 configured/not-configured 状态
-- AI 摘要支持按 `SKILL.md` 内容 hash 缓存；没有配置 key 时降级显示 frontmatter description
+- AI 摘要支持 Anthropic Messages 和 Chat Completions 两种自定义端点；按 `SKILL.md` 内容 hash + provider/model 缓存
+- 没有配置 key 时，AI 摘要会降级显示 frontmatter description
 
 下一阶段再做：签名/公证后的正式分发、CI release workflow、批量路由。
 
 ## 当前限制
 
-- AI 摘要的 live API 请求需要用户自行保存 API key；本地验证时未配置真实 key，也未触发外部请求。
+- AI 摘要的 live API 请求需要用户在 Settings 里配置 provider、endpoint、model 和 API key；API key 不写入配置文件。
 - macOS `.app` bundle 已开启，但当前是 unsigned local build；正式发给别人前还需要 Developer ID 签名、notarization 和 DMG/release 流程。
 - watcher 只在启动时读取一次当前隐藏平台配置；运行中修改平台可见性后，仍可用手动 Refresh 兜底。
 - 还没有 GitHub Actions CI / release workflow。

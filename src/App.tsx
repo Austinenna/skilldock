@@ -3,11 +3,21 @@ import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
 import { PALETTES, PALETTE_OPTIONS, PALETTE_KEYS, type Palette } from './palettes';
-import type { Config, PaletteKey, Platform, Skill, SkillDetail } from './types';
+import type { AiProvider, Config, PaletteKey, Platform, Skill, SkillDetail } from './types';
 
 const FONT_SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Inter", sans-serif';
 const FONT_DISPLAY_WARM = '"Instrument Serif", Georgia, serif';
 const MONO = '"JetBrains Mono", "SF Mono", Menlo, monospace';
+const AI_PRESETS: Record<AiProvider, { endpoint: string; model: string }> = {
+  anthropic: {
+    endpoint: 'https://api.minimaxi.com/anthropic/v1/messages',
+    model: 'MiniMax-M2.7',
+  },
+  chat: {
+    endpoint: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions',
+    model: 'mimo-v2.5-pro',
+  },
+};
 
 const PLATFORM_ACCENTS: Record<string, string> = {
   central: '#34c759', claude: '#bf5af2', codex: '#5e9eff', openclaw: '#ff9f0a',
@@ -550,6 +560,12 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
   onSaveApiKey: (key: string) => void; onClearApiKey: () => void;
 }) {
   const [apiKey, setApiKey] = useState('');
+  const [aiEndpoint, setAiEndpoint] = useState(config.aiEndpoint);
+  const [aiModel, setAiModel] = useState(config.aiModel);
+  useEffect(() => {
+    setAiEndpoint(config.aiEndpoint);
+    setAiModel(config.aiModel);
+  }, [config.aiEndpoint, config.aiModel]);
   const toggleHidden = (id: string) => {
     const isHidden = config.hiddenPlatforms.includes(id);
     setConfig({
@@ -557,6 +573,15 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
         ? config.hiddenPlatforms.filter((x) => x !== id)
         : [...config.hiddenPlatforms, id],
     });
+  };
+  const changeAiProvider = (provider: AiProvider) => {
+    const preset = AI_PRESETS[provider];
+    setAiEndpoint(preset.endpoint);
+    setAiModel(preset.model);
+    setConfig({ aiProvider: provider, aiEndpoint: preset.endpoint, aiModel: preset.model });
+  };
+  const saveAiConfig = () => {
+    setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
   };
 
   return (
@@ -647,11 +672,41 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKe
         <div style={{ marginBottom: 32 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>AI</div>
           <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Provider protocol</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Choose the request/response shape for summaries.</div>
+              </div>
+              <Segmented<AiProvider> value={config.aiProvider} onChange={changeAiProvider} p={p}
+                options={[{ value: 'anthropic', label: 'Anthropic' }, { value: 'chat', label: 'Chat' }]} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
+              <div>
+                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Endpoint</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Full URL, such as a messages or chat/completions endpoint.</div>
+              </div>
+              <input value={aiEndpoint} onChange={(e) => setAiEndpoint(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].endpoint}
+                style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
+              <div>
+                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Model</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Used when a summary is regenerated.</div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <input value={aiModel} onChange={(e) => setAiModel(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].model}
+                  style={{ minWidth: 0, flex: 1, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
+                <button onClick={saveAiConfig} style={{
+                  border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 9px',
+                  fontSize: 11, cursor: 'pointer', fontFamily: FONT_SANS,
+                }}>Apply</button>
+              </div>
+            </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
                 <div style={{ fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
-                  {apiKeyConfigured ? 'Stored in macOS Keychain.' : 'No key stored.'}
+                  {apiKeyConfigured ? 'Stored in macOS Keychain.' : (config.aiProvider === 'chat' ? 'Sent as api-key.' : 'Sent as x-api-key.')}
                 </div>
               </div>
               <input value={apiKey} disabled={apiKeyPending} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
@@ -754,6 +809,9 @@ function ImportModal({ open, onClose, onAdd, pending, p }: {
 const DEFAULT_CONFIG: Config = {
   palette: 'cool', density: 'comfortable', view: 'list',
   hiddenPlatforms: ['cursor', 'gemini', 'copilot', 'windsurf', 'aider', 'qclaw', 'easyclaw', 'workbuddy'],
+  aiProvider: 'anthropic',
+  aiEndpoint: AI_PRESETS.anthropic.endpoint,
+  aiModel: AI_PRESETS.anthropic.model,
 };
 
 export default function App() {

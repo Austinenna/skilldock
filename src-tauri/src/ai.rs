@@ -1,3 +1,4 @@
+use crate::config;
 use crate::error::{AppError, Result};
 use crate::skills;
 use keyring::{Entry, Error as KeyringError};
@@ -12,9 +13,55 @@ use tauri::Manager;
 
 const KEYRING_SERVICE: &str = "com.skillloom.desktop";
 const API_KEY_ACCOUNT: &str = "ai_api_key";
-const DEFAULT_SUMMARY_MODEL: &str = "claude-haiku-4-5-20251001";
+const DEFAULT_ANTHROPIC_ENDPOINT: &str = "https://api.minimaxi.com/anthropic/v1/messages";
+const DEFAULT_ANTHROPIC_MODEL: &str = "MiniMax-M2.7";
+const DEFAULT_CHAT_ENDPOINT: &str = "https://token-plan-sgp.xiaomimimo.com/v1/chat/completions";
+const DEFAULT_CHAT_MODEL: &str = "mimo-v2.5-pro";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const SQLITE_BIN: &str = "/usr/bin/sqlite3";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiProvider {
+    Anthropic,
+    ChatCompletions,
+}
+
+impl AiProvider {
+    fn from_config(value: &str) -> Self {
+        match value {
+            "chat" | "chat-completions" | "openai" | "openai-compatible" => Self::ChatCompletions,
+            _ => Self::Anthropic,
+        }
+    }
+
+    fn default_endpoint(self) -> &'static str {
+        match self {
+            Self::Anthropic => DEFAULT_ANTHROPIC_ENDPOINT,
+            Self::ChatCompletions => DEFAULT_CHAT_ENDPOINT,
+        }
+    }
+
+    fn default_model(self) -> &'static str {
+        match self {
+            Self::Anthropic => DEFAULT_ANTHROPIC_MODEL,
+            Self::ChatCompletions => DEFAULT_CHAT_MODEL,
+        }
+    }
+
+    fn cache_model_label(self, model: &str) -> String {
+        match self {
+            Self::Anthropic => format!("anthropic:{model}"),
+            Self::ChatCompletions => format!("chat:{model}"),
+        }
+    }
+}
+
+struct AiRequestConfig {
+    provider: AiProvider,
+    endpoint: String,
+    model: String,
+    model_label: String,
+}
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -126,13 +173,19 @@ struct CachedSummaryRow {
     summary: String,
 }
 
-fn cached_summary(path: &PathBuf, skill_id: &str, hash: &str) -> Result<Option<String>> {
+fn cached_summary(
+    path: &PathBuf,
+    skill_id: &str,
+    hash: &str,
+    model_label: &str,
+) -> Result<Option<String>> {
     let output = run_sqlite(
         path,
         &format!(
-            ".mode json\nSELECT summary FROM ai_summary WHERE skill_id = {} AND content_hash = {} LIMIT 1;",
+            ".mode json\nSELECT summary FROM ai_summary WHERE skill_id = {} AND content_hash = {} AND model = {} LIMIT 1;",
             sql_literal(skill_id)?,
             sql_literal(hash)?,
+            sql_literal(model_label)?,
         ),
     )?;
     let output = output.trim();
@@ -197,6 +250,35 @@ struct AnthropicContent {
     text: Option<String>,
 }
 
+#[derive(Debug, Serialize)]
+struct ChatCompletionsRequest {
+    model: String,
+    messages: Vec<ChatMessage>,
+    max_completion_tokens: u32,
+    temperature: f32,
+    top_p: f32,
+    stream: bool,
+    stop: Option<Vec<String>>,
+    frequency_penalty: f32,
+    presence_penalty: f32,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ChatMessage {
+    role: String,
+    content: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatCompletionsResponse {
+    choices: Vec<ChatChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ChatChoice {
+    message: ChatMessage,
+}
+
 fn summary_prompt(skill_id: &str, skill_md: &str) -> String {
     format!(
         "Summarize this SkillLoom skill for a local skill manager UI.\n\
@@ -217,19 +299,31 @@ fn curl_config_value(value: &str, label: &str) -> Result<String> {
     Ok(value.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-fn request_summary(api_key: &str, skill_id: &str, skill_md: &str) -> Result<String> {
-    let request = AnthropicRequest {
-        model: DEFAULT_SUMMARY_MODEL.into(),
-        max_tokens: 180,
-        system: "You write concise, accurate summaries of AI agent skills.".into(),
-        messages: vec![AnthropicMessage {
-            role: "user".into(),
-            content: summary_prompt(skill_id, skill_md),
-        }],
-    };
-    let body = serde_json::to_vec(&request)?;
+fn configured_value(value: &str, fallback: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn resolve_ai_config(config: &config::Config) -> AiRequestConfig {
+    let provider = AiProvider::from_config(&config.ai_provider);
+    let endpoint = configured_value(&config.ai_endpoint, provider.default_endpoint());
+    let model = configured_value(&config.ai_model, provider.default_model());
+    let model_label = provider.cache_model_label(&model);
+    AiRequestConfig {
+        provider,
+        endpoint,
+        model,
+        model_label,
+    }
+}
+
+fn request_with_curl(endpoint: &str, headers: &[(&str, String)], body: &[u8]) -> Result<Vec<u8>> {
     let temp_path = std::env::temp_dir().join(format!(
-        "skillloom-summary-{}-{}.json",
+        "skillloom-ai-{}-{}.json",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -238,16 +332,17 @@ fn request_summary(api_key: &str, skill_id: &str, skill_md: &str) -> Result<Stri
     ));
     fs::write(&temp_path, body)?;
 
-    let api_key = curl_config_value(api_key, "api key")?;
+    let endpoint = curl_config_value(endpoint, "ai endpoint")?;
     let body_path = curl_config_value(&temp_path.to_string_lossy(), "request path")?;
-    let config = format!(
-        "url = \"https://api.anthropic.com/v1/messages\"\n\
+    let mut config = format!(
+        "url = \"{endpoint}\"\n\
          request = \"POST\"\n\
-         header = \"content-type: application/json\"\n\
-         header = \"anthropic-version: {ANTHROPIC_VERSION}\"\n\
-         header = \"x-api-key: {api_key}\"\n\
          data-binary = \"@{body_path}\"\n"
     );
+    for (name, value) in headers {
+        let value = curl_config_value(value, name)?;
+        config.push_str(&format!("header = \"{name}: {value}\"\n"));
+    }
 
     let mut child = Command::new("/usr/bin/curl")
         .arg("--silent")
@@ -280,8 +375,11 @@ fn request_summary(api_key: &str, skill_id: &str, skill_md: &str) -> Result<Stri
         }));
     }
 
-    let response = serde_json::from_slice::<AnthropicResponse>(&output.stdout)?;
+    Ok(output.stdout)
+}
 
+fn text_from_anthropic_response(body: &[u8]) -> Result<String> {
+    let response = serde_json::from_slice::<AnthropicResponse>(body)?;
     response
         .content
         .into_iter()
@@ -300,6 +398,100 @@ fn request_summary(api_key: &str, skill_id: &str, skill_md: &str) -> Result<Stri
             }
         })
         .ok_or_else(|| AppError::Ai("summary response did not contain text".into()))
+}
+
+fn text_from_chat_response(body: &[u8]) -> Result<String> {
+    let response = serde_json::from_slice::<ChatCompletionsResponse>(body)?;
+    response
+        .choices
+        .into_iter()
+        .find_map(|choice| {
+            let trimmed = choice.message.content.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        })
+        .ok_or_else(|| AppError::Ai("chat completion response did not contain text".into()))
+}
+
+fn request_anthropic_summary(
+    api_key: &str,
+    endpoint: &str,
+    model: &str,
+    skill_id: &str,
+    skill_md: &str,
+) -> Result<String> {
+    let request = AnthropicRequest {
+        model: model.into(),
+        max_tokens: 180,
+        system: "You write concise, accurate summaries of AI agent skills.".into(),
+        messages: vec![AnthropicMessage {
+            role: "user".into(),
+            content: summary_prompt(skill_id, skill_md),
+        }],
+    };
+    let body = serde_json::to_vec(&request)?;
+    let response = request_with_curl(
+        endpoint,
+        &[
+            ("content-type", "application/json".into()),
+            ("anthropic-version", ANTHROPIC_VERSION.into()),
+            ("x-api-key", api_key.into()),
+        ],
+        &body,
+    )?;
+    text_from_anthropic_response(&response)
+}
+
+fn request_chat_summary(
+    api_key: &str,
+    endpoint: &str,
+    model: &str,
+    skill_id: &str,
+    skill_md: &str,
+) -> Result<String> {
+    let request = ChatCompletionsRequest {
+        model: model.into(),
+        messages: vec![ChatMessage {
+            role: "user".into(),
+            content: summary_prompt(skill_id, skill_md),
+        }],
+        max_completion_tokens: 180,
+        temperature: 0.3,
+        top_p: 0.95,
+        stream: false,
+        stop: None,
+        frequency_penalty: 0.0,
+        presence_penalty: 0.0,
+    };
+    let body = serde_json::to_vec(&request)?;
+    let response = request_with_curl(
+        endpoint,
+        &[
+            ("content-type", "application/json".into()),
+            ("api-key", api_key.into()),
+        ],
+        &body,
+    )?;
+    text_from_chat_response(&response)
+}
+
+fn request_summary(
+    api_key: &str,
+    config: &AiRequestConfig,
+    skill_id: &str,
+    skill_md: &str,
+) -> Result<String> {
+    match config.provider {
+        AiProvider::Anthropic => {
+            request_anthropic_summary(api_key, &config.endpoint, &config.model, skill_id, skill_md)
+        }
+        AiProvider::ChatCompletions => {
+            request_chat_summary(api_key, &config.endpoint, &config.model, skill_id, skill_md)
+        }
+    }
 }
 
 #[tauri::command]
@@ -333,9 +525,11 @@ pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) ->
     let detail = skills::get_skill_detail(skill_id.clone())?;
     let hash = content_hash(&detail.skill_md);
     let conn = open_cache(&app)?;
+    let config = config::read_config(&app)?;
+    let ai_config = resolve_ai_config(&config);
 
     if !force {
-        if let Some(summary) = cached_summary(&conn, &skill_id, &hash)? {
+        if let Some(summary) = cached_summary(&conn, &skill_id, &hash, &ai_config.model_label)? {
             return Ok(summary);
         }
     }
@@ -344,8 +538,8 @@ pub fn generate_summary(app: tauri::AppHandle, skill_id: String, force: bool) ->
         return Ok(detail.skill.tagline);
     };
 
-    let summary = request_summary(&api_key, &skill_id, &detail.skill_md)?;
-    store_summary(&conn, &skill_id, &hash, &summary, DEFAULT_SUMMARY_MODEL)?;
+    let summary = request_summary(&api_key, &ai_config, &skill_id, &detail.skill_md)?;
+    store_summary(&conn, &skill_id, &hash, &summary, &ai_config.model_label)?;
     Ok(summary)
 }
 

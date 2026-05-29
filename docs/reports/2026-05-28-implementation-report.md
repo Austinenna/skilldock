@@ -297,3 +297,36 @@
 - `pnpm build`
 - `pnpm tauri build`
 - 结果：`sqlite3` 可用；离线 Rust check 通过；17 个 Rust 测试通过；前端生产构建通过；macOS unsigned `.app` 打包通过。
+
+## 任务 14：实现可配置 AI 分析端点
+
+提交目标：`feat: configure ai providers`
+
+修改文件：
+- `src-tauri/src/config.rs`
+- `src-tauri/src/ai.rs`
+- `src/types.ts`
+- `src/App.tsx`
+- `README.md`
+- `DEVELOPMENT.md`
+- `docs/reports/2026-05-28-implementation-report.md`
+
+修改内容：
+- 在配置中新增 `aiProvider`、`aiEndpoint` 和 `aiModel`，API key 仍只存 macOS Keychain。
+- Settings 的 AI 区域新增 provider 协议选择、endpoint 输入框和 model 输入框。
+- 支持两种 provider 协议：
+  - `anthropic`：发送 Anthropic Messages 请求，使用 `x-api-key` header。
+  - `chat`：发送 Chat Completions 请求，使用 `api-key` header。
+- 默认预填 Anthropic-compatible 的 MiniMax endpoint/model，同时可切换到 Chat Completions 示例 endpoint/model。
+- 后端根据 provider 生成不同请求体，并分别解析 `content[].text` 或 `choices[].message.content`。
+- 摘要缓存读取时增加 provider/model 维度，切换端点或模型后不会误用旧摘要。
+- 更新 README 和 DEVELOPMENT，说明当前 AI 分析需要用户配置 provider、endpoint、model 和 API key。
+
+验证：
+- `rustfmt src-tauri/src/ai.rs src-tauri/src/config.rs`
+- `cargo check --offline`
+- `cargo test --offline`
+- `pnpm build`
+- `pnpm tauri build`
+- 结果：离线 Rust check 通过；17 个 Rust 测试通过；前端生产构建通过；macOS unsigned `.app` 打包通过。
+- 备注：本步骤没有提交或写入任何真实 API key，也没有触发 live API 请求。

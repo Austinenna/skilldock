@@ -5,12 +5,16 @@ use std::path::PathBuf;
 use tauri::Manager;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 #[serde(rename_all = "camelCase")]
 pub struct Config {
     pub palette: String,
     pub density: String,
     pub view: String,
     pub hidden_platforms: Vec<String>,
+    pub ai_provider: String,
+    pub ai_endpoint: String,
+    pub ai_model: String,
 }
 
 impl Default for Config {
@@ -19,9 +23,22 @@ impl Default for Config {
             palette: "cool".into(),
             density: "comfortable".into(),
             view: "list".into(),
-            hidden_platforms: ["cursor", "gemini", "copilot", "windsurf", "aider",
-                               "qclaw", "easyclaw", "workbuddy"]
-                .iter().map(|s| s.to_string()).collect(),
+            hidden_platforms: [
+                "cursor",
+                "gemini",
+                "copilot",
+                "windsurf",
+                "aider",
+                "qclaw",
+                "easyclaw",
+                "workbuddy",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+            ai_provider: "anthropic".into(),
+            ai_endpoint: "https://api.minimaxi.com/anthropic/v1/messages".into(),
+            ai_model: "MiniMax-M2.7".into(),
         }
     }
 }
@@ -32,9 +49,11 @@ fn config_path(app: &tauri::AppHandle) -> Result<PathBuf> {
     Ok(dir.join("config.json"))
 }
 
-fn read_or_default(app: &tauri::AppHandle) -> Result<Config> {
+pub fn read_config(app: &tauri::AppHandle) -> Result<Config> {
     let path = config_path(app)?;
-    if !path.exists() { return Ok(Config::default()); }
+    if !path.exists() {
+        return Ok(Config::default());
+    }
     let content = fs::read_to_string(&path)?;
     // If the file is corrupt or stale-schema, fall back to defaults instead of crashing.
     Ok(serde_json::from_str(&content).unwrap_or_default())
@@ -42,12 +61,12 @@ fn read_or_default(app: &tauri::AppHandle) -> Result<Config> {
 
 #[tauri::command]
 pub fn get_config(app: tauri::AppHandle) -> Result<Config> {
-    read_or_default(&app)
+    read_config(&app)
 }
 
 #[tauri::command]
 pub fn update_config(app: tauri::AppHandle, patch: serde_json::Value) -> Result<Config> {
-    let current = read_or_default(&app)?;
+    let current = read_config(&app)?;
     let mut merged = serde_json::to_value(&current)?;
     if let (Some(obj), Some(p)) = (merged.as_object_mut(), patch.as_object()) {
         for (k, v) in p {

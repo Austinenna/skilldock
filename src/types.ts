@@ -2,6 +2,7 @@ export type PaletteKey = 'cool' | 'warm' | 'slate';
 export type Density = 'compact' | 'comfortable';
 export type View = 'list' | 'grid';
 export type PlatformGroup = 'Core' | 'Coding' | 'Lobster';
+export type AiProvider = 'anthropic' | 'chat';
 
 export interface Platform {
   id: string;
@@ -49,6 +50,9 @@ export interface Config {
   density: Density;
   view: View;
   hiddenPlatforms: string[];
+  aiProvider: AiProvider;
+  aiEndpoint: string;
+  aiModel: string;
 }
 
 export interface ApiKeyStatus {

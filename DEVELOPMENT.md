@@ -124,13 +124,14 @@ SkillLoom/
                      │
                      │ HTTPS
                      ▼
-            api.anthropic.com (摘要生成)
+            自定义 AI endpoint (摘要生成)
 ```
 
 **核心设计原则：**
 
 - **文件系统是 single source of truth**，App 不维护自己的 skill 列表，每次需要就 scan
-- **App 自己的状态只存偏好**（主题、隐藏平台、API key、AI 摘要缓存）
+- **App 自己的状态只存偏好**（主题、隐藏平台、AI provider/endpoint/model、AI 摘要缓存）
+- **API key 只进 Keychain**，不写入 config.json
 - **Symlink 是路由的唯一实现**，没有任何"软配置文件"决定路由，避免不一致
 
 ---
@@ -178,10 +179,13 @@ export interface Platform {
 
 ```json
 {
-  "appearance": { "palette": "cool" },
-  "preferences": { "density": "comfortable", "view": "list" },
-  "platforms": { "hidden": ["cursor", "gemini", "..."] },
-  "ai": { "model": "claude-haiku-4-5-20251001" }
+  "palette": "cool",
+  "density": "comfortable",
+  "view": "list",
+  "hiddenPlatforms": ["cursor", "gemini", "..."],
+  "aiProvider": "anthropic",
+  "aiEndpoint": "https://api.minimaxi.com/anthropic/v1/messages",
+  "aiModel": "MiniMax-M2.7"
 }
 ```
 
@@ -201,6 +205,8 @@ CREATE TABLE ai_summary (
   PRIMARY KEY (skill_id, content_hash)
 );
 ```
+
+读取缓存时会额外按 `model` 字段过滤，字段内容包含 provider 前缀（例如 `anthropic:MiniMax-M2.7` 或 `chat:mimo-v2.5-pro`），避免切换 provider/model 后误用旧摘要。
 
 ---
 
@@ -247,7 +253,9 @@ delete_skill(id: String) -> Result<()>
 
 ```rust
 generate_summary(skill_id: String, force: bool) -> Result<String>
-// force=false 时优先读缓存
+// force=false 时优先读当前 provider/model 对应缓存
+// provider=anthropic 时发 Anthropic Messages 请求，使用 x-api-key
+// provider=chat 时发 Chat Completions 请求，使用 api-key
 ```
 
 ### 6.5 文件监听（推事件给前端）
@@ -267,6 +275,7 @@ get_config() -> Config
 update_config(patch: ConfigPatch) -> Result<Config>
 get_api_key() -> Option<String>     // 从 Keychain 读
 set_api_key(key: String) -> Result<()>
+// config.json 只保存 aiProvider / aiEndpoint / aiModel，不保存 API key
 ```
 
 ---
@@ -491,8 +500,9 @@ Tauri 内置 updater：
 
 ### Phase 4 — AI 摘要（1.5 天）
 - [x] Settings 里加 API Key 输入框，存 Keychain
-- [x] `generate_summary` 按需调 Claude API（model: `claude-haiku-4-5-20251001`，有 key 时触发）
-- [x] SQLite 缓存按 content_hash 命中
+- [x] Settings 里配置 provider、endpoint 和 model
+- [x] `generate_summary` 按配置调用 Anthropic Messages 或 Chat Completions 兼容端点
+- [x] SQLite 缓存按 content_hash + provider/model 命中
 - [x] 失败/无 key 时降级到 SKILL.md 原始描述
 - [ ] **里程碑**：配置真实 API key 后验证每个 skill 都有像样的摘要
 
@@ -528,7 +538,7 @@ Tauri 内置 updater：
 
 ## 9.1 当前限制
 
-- AI 摘要的 live API 请求需要用户自行保存 API key；当前本地验证未配置真实 key。
+- AI 摘要的 live API 请求需要用户自行配置 provider、endpoint、model 和 API key；当前本地验证不提交任何真实密钥。
 - `notify` watcher 在启动时读取一次隐藏平台配置；运行中改变可见平台后，手动 Refresh 仍是兜底。
 - macOS `.app` bundle 已开启，但当前只适合本机 unsigned build；正式分发还需要签名、notarization 和 DMG/release 流程。
 - 还没有 GitHub Actions CI，发布流程需要在 Phase 7 补齐。
