@@ -17,6 +17,7 @@ pub enum InitAction {
     MigrateToCentral,
     LinkExistingCentral,
     LinkPlannedCentral,
+    ResolveConflictSource,
     AlreadyRouted,
     SkipConflict,
     SkipInvalid,
@@ -109,6 +110,7 @@ fn selectable(action: &InitAction) -> bool {
         InitAction::MigrateToCentral
             | InitAction::LinkExistingCentral
             | InitAction::LinkPlannedCentral
+            | InitAction::ResolveConflictSource
     )
 }
 
@@ -119,6 +121,7 @@ fn summarize(items: &[InitPreviewItem]) -> InitPreviewSummary {
             InitAction::MigrateToCentral
             | InitAction::LinkExistingCentral
             | InitAction::LinkPlannedCentral => summary.migratable += 1,
+            InitAction::ResolveConflictSource => summary.conflicts += 1,
             InitAction::AlreadyRouted => summary.already_routed += 1,
             InitAction::SkipConflict => summary.conflicts += 1,
             InitAction::SkipInvalid => summary.skipped += 1,
@@ -580,9 +583,9 @@ fn build_preview_for_roots(central_root: &Path, platform_roots: &[PlatformRoot])
                 items.push(make_item(
                     &candidate,
                     central_root,
-                    InitAction::SkipConflict,
+                    InitAction::ResolveConflictSource,
                     false,
-                    Some("Same skill id exists in multiple platforms with different contents.".into()),
+                    Some("Choose this source to copy into central; other conflicting sources will stay unchanged.".into()),
                 ));
             }
             continue;
@@ -686,7 +689,7 @@ fn replace_source_with_route(item: &InitPreviewItem, central_root: &Path, backup
 
 fn execute_init_item(item: &InitPreviewItem, central_root: &Path, backup_root: &Path) -> Result<()> {
     match item.action {
-        InitAction::MigrateToCentral => {
+        InitAction::MigrateToCentral | InitAction::ResolveConflictSource => {
             let source = PathBuf::from(&item.content_path);
             let central_skill = central_root.join(&item.id);
             if central_skill.exists() {
@@ -720,8 +723,25 @@ pub fn run_repository_init(selected_keys: Vec<String>) -> Result<InitResult> {
         .into_iter()
         .filter(|item| selected_keys.contains(&item.key) && selectable(&item.action))
         .collect();
+
+    let mut conflict_source_counts: BTreeMap<String, usize> = BTreeMap::new();
+    for item in runnable
+        .iter()
+        .filter(|item| item.action == InitAction::ResolveConflictSource)
+    {
+        *conflict_source_counts.entry(item.id.clone()).or_default() += 1;
+    }
+    if let Some((id, _)) = conflict_source_counts
+        .into_iter()
+        .find(|(_, count)| *count > 1)
+    {
+        return Err(AppError::Conflict(format!(
+            "select only one source for conflicting skill '{id}'"
+        )));
+    }
+
     runnable.sort_by_key(|item| match item.action {
-        InitAction::MigrateToCentral => 0,
+        InitAction::MigrateToCentral | InitAction::ResolveConflictSource => 0,
         InitAction::LinkExistingCentral => 1,
         InitAction::LinkPlannedCentral => 2,
         InitAction::AlreadyRouted | InitAction::SkipConflict | InitAction::SkipInvalid => 3,
@@ -886,7 +906,7 @@ mod tests {
         assert!(preview
             .items
             .iter()
-            .all(|item| item.action == InitAction::SkipConflict));
+            .all(|item| item.action == InitAction::ResolveConflictSource));
     }
 
     #[test]
@@ -1018,5 +1038,43 @@ mod tests {
             fs::read_link(backup_link).expect("read backed up external link"),
             external_skill
         );
+    }
+
+    #[test]
+    fn selected_conflict_source_migrates_only_that_platform() {
+        let fixture = InitFixture::new("execute-conflict-source");
+        InitFixture::write_skill(&fixture.claude.root, "gsd-schema", "claude version");
+        InitFixture::write_skill(&fixture.codex.root, "gsd-schema", "codex version");
+
+        let preview = preview(&fixture);
+        let item = preview
+            .items
+            .into_iter()
+            .find(|item| item.platform_id == "claude" && item.id == "gsd-schema")
+            .expect("claude conflict source");
+        let backup = fixture.root.join("backup");
+
+        assert_eq!(item.action, InitAction::ResolveConflictSource);
+        execute_init_item(&item, &fixture.central, &backup)
+            .expect("execute conflict source migration");
+
+        let central_md = fs::read_to_string(fixture.central.join("gsd-schema").join("SKILL.md"))
+            .expect("central skill md");
+        assert!(central_md.contains("claude version"));
+
+        let claude_entry = fixture.claude.root.join("gsd-schema");
+        assert!(fs::symlink_metadata(&claude_entry)
+            .expect("claude route metadata")
+            .file_type()
+            .is_symlink());
+        assert_eq!(
+            fs::read_link(claude_entry).expect("read claude route"),
+            fixture.central.join("gsd-schema")
+        );
+
+        assert!(fixture.codex.root.join("gsd-schema").join("SKILL.md").is_file());
+        let codex_md = fs::read_to_string(fixture.codex.root.join("gsd-schema").join("SKILL.md"))
+            .expect("codex skill md");
+        assert!(codex_md.contains("codex version"));
     }
 }

@@ -65,6 +65,7 @@ export type InitAction =
   | 'migrateToCentral'
   | 'linkExistingCentral'
   | 'linkPlannedCentral'
+  | 'resolveConflictSource'
   | 'alreadyRouted'
   | 'skipConflict'
   | 'skipInvalid';

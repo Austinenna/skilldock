@@ -54,12 +54,17 @@ const INIT_ACTION_LABELS: Record<InitAction, string> = {
   migrateToCentral: 'Migrate',
   linkExistingCentral: 'Link existing',
   linkPlannedCentral: 'Link planned',
+  resolveConflictSource: 'Choose',
   alreadyRouted: 'Routed',
   skipConflict: 'Conflict',
   skipInvalid: 'Skipped',
 };
 
 function isInitActionSelectable(action: InitAction) {
+  return action === 'migrateToCentral' || action === 'linkExistingCentral' || action === 'linkPlannedCentral' || action === 'resolveConflictSource';
+}
+
+function isInitActionBulkSelectable(action: InitAction) {
   return action === 'migrateToCentral' || action === 'linkExistingCentral' || action === 'linkPlannedCentral';
 }
 
@@ -935,13 +940,15 @@ function InitRepositoryModal({ open, preview, result, selected, scanPending, run
   const visibleItems = showSkipped ? items : items.filter((item) => item.action !== 'skipInvalid');
   const hiddenSkippedCount = items.length - visibleItems.length;
   const selectableItems = items.filter((item) => isInitActionSelectable(item.action));
+  const bulkSelectableItems = items.filter((item) => isInitActionBulkSelectable(item.action));
   const selectedCount = selectableItems.filter((item) => selected[item.key]).length;
-  const allSelected = selectableItems.length > 0 && selectedCount === selectableItems.length;
+  const allSelected = bulkSelectableItems.length > 0 && bulkSelectableItems.every((item) => selected[item.key]);
   const busy = scanPending || runPending;
 
   const actionTone = (action: InitAction) => {
     if (action === 'migrateToCentral') return { color: p.hubText, bg: p.hubSoft, border: p.hubSoft };
     if (action === 'linkExistingCentral' || action === 'linkPlannedCentral') return { color: p.text, bg: p.accentSoft, border: p.accentSoft };
+    if (action === 'resolveConflictSource') return { color: p.danger, bg: 'rgba(255,59,48,0.08)', border: 'rgba(255,59,48,0.18)' };
     if (action === 'skipConflict') return { color: p.danger, bg: 'rgba(255,59,48,0.08)', border: 'rgba(255,59,48,0.18)' };
     return { color: p.text3, bg: 'rgba(0,0,0,0.04)', border: p.lineSoft };
   };
@@ -1002,7 +1009,7 @@ function InitRepositoryModal({ open, preview, result, selected, scanPending, run
                 borderBottom: '1px solid ' + p.line, background: p.panel,
                 position: 'sticky', top: 0, zIndex: 1,
               }}>
-                <input type="checkbox" checked={allSelected} disabled={selectableItems.length === 0 || busy}
+                <input type="checkbox" checked={allSelected} disabled={bulkSelectableItems.length === 0 || busy}
                   onChange={(event) => onToggleAll(event.target.checked)} />
                 <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Skill</div>
                 <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Source</div>
@@ -1011,6 +1018,7 @@ function InitRepositoryModal({ open, preview, result, selected, scanPending, run
               </div>
               {visibleItems.map((item, index) => {
                 const canSelect = isInitActionSelectable(item.action);
+                const selectedForRun = Boolean(selected[item.key]) && canSelect;
                 const tone = actionTone(item.action);
                 return (
                   <div key={item.key} style={{
@@ -1020,7 +1028,7 @@ function InitRepositoryModal({ open, preview, result, selected, scanPending, run
                     background: index % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.012)',
                     opacity: canSelect || item.action === 'alreadyRouted' ? 1 : 0.82,
                   }}>
-                    <input type="checkbox" disabled={!canSelect || busy} checked={Boolean(selected[item.key]) && canSelect}
+                    <input type="checkbox" disabled={!canSelect || busy} checked={selectedForRun}
                       onChange={(event) => onToggle(item.key, event.target.checked)} />
                     <div style={{ minWidth: 0 }}>
                       <div title={item.title} style={{ fontSize: 13, color: p.text, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
@@ -1032,13 +1040,15 @@ function InitRepositoryModal({ open, preview, result, selected, scanPending, run
                     </div>
                     <span style={{
                       width: 'fit-content', maxWidth: '100%', fontSize: 10, color: tone.color,
-                      background: tone.bg, border: '1px solid ' + tone.border, borderRadius: 10,
+                      background: item.action === 'resolveConflictSource' && selectedForRun ? p.hubSoft : tone.bg,
+                      border: '1px solid ' + (item.action === 'resolveConflictSource' && selectedForRun ? p.hubSoft : tone.border),
+                      borderRadius: 10,
                       padding: '2px 7px', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{INIT_ACTION_LABELS[item.action]}</span>
+                    }}>{item.action === 'resolveConflictSource' && selectedForRun ? 'Use source' : INIT_ACTION_LABELS[item.action]}</span>
                     <div style={{ minWidth: 0 }}>
                       <div title={item.sourcePath} style={{ fontSize: 10, color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.sourcePath}</div>
                       {item.message && (
-                        <div title={item.message} style={{ fontSize: 11, color: item.action === 'skipConflict' ? p.danger : p.text2, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.message}</div>
+                        <div title={item.message} style={{ fontSize: 11, color: (item.action === 'skipConflict' || item.action === 'resolveConflictSource') ? (selectedForRun ? p.hubText : p.danger) : p.text2, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.message}</div>
                       )}
                     </div>
                   </div>
@@ -1287,14 +1297,29 @@ export default function App() {
   }, [loadInitPreview]);
 
   const toggleInitItem = useCallback((key: string, checked: boolean) => {
-    setInitSelected((current) => ({ ...current, [key]: checked }));
-  }, []);
+    setInitSelected((current) => {
+      const next = { ...current, [key]: checked };
+      const item = initPreview?.items.find((candidate) => candidate.key === key);
+      if (checked && item?.action === 'resolveConflictSource') {
+        initPreview?.items.forEach((candidate) => {
+          if (
+            candidate.id === item.id &&
+            candidate.key !== item.key &&
+            candidate.action === 'resolveConflictSource'
+          ) {
+            next[candidate.key] = false;
+          }
+        });
+      }
+      return next;
+    });
+  }, [initPreview]);
 
   const toggleAllInitItems = useCallback((checked: boolean) => {
     setInitSelected((current) => {
       const next = { ...current };
       initPreview?.items.forEach((item) => {
-        if (isInitActionSelectable(item.action)) next[item.key] = checked;
+        if (isInitActionBulkSelectable(item.action)) next[item.key] = checked;
       });
       return next;
     });
