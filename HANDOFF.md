@@ -14,6 +14,7 @@ SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中�
 - 已更新 `.cc-switch/skills/webserp` 和 `.cc-switch/skills/cli-anything` 两个指向中央目录的符号链接。
 - 应用偏好从 `~/Library/Application Support/com.skillloom.desktop/` 迁移到 `~/Library/Application Support/com.skilldock.desktop/`。
 - 保留并纳入当前工作树中已有的 macOS `.app` + `.dmg` 发布脚本和 v0.1.0 发布记录。
+- 已创建公开远程仓库 `https://github.com/Austinenna/skilldock`，`main` 已推送并设置为跟踪分支。
 
 ## 当前实现
 
@@ -36,5 +37,4 @@ SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中�
 
 1. 运行 `pnpm build`、`cd src-tauri && cargo check`、`cd src-tauri && cargo test`。
 2. 检查 `git diff` 和待提交文件，确认没有凭据、构建缓存或不应入库的本地数据。
-3. 提交 SkillDock 正式开发基线。
-4. 创建新的远程 `skilldock` 仓库并推送；旧的 SkillLoom 远程不再作为项目入口。
+3. 继续补 GitHub Actions CI、Developer ID 公证和批量路由等后续功能。
