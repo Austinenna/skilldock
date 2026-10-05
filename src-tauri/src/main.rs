@@ -34,5 +34,5 @@ fn main() {
             config::update_config,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running SkillLoom");
+        .expect("error while running SkillDock");
 }

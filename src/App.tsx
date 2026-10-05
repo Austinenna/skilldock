@@ -71,17 +71,17 @@ function isInitActionBulkSelectable(action: InitAction) {
 // ─── small helpers ────────────────────────────────────────────────
 function useFontLink() {
   useEffect(() => {
-    if (!document.getElementById('skillloom-fonts')) {
+    if (!document.getElementById('skilldock-fonts')) {
       const l = document.createElement('link');
-      l.id = 'skillloom-fonts';
+      l.id = 'skilldock-fonts';
       l.rel = 'stylesheet';
       l.href = 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap';
       document.head.appendChild(l);
     }
-    if (!document.getElementById('skillloom-global-styles')) {
+    if (!document.getElementById('skilldock-global-styles')) {
       const style = document.createElement('style');
-      style.id = 'skillloom-global-styles';
-      style.textContent = '@keyframes skillloom-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
+      style.id = 'skilldock-global-styles';
+      style.textContent = '@keyframes skilldock-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
       document.head.appendChild(style);
     }
   }, []);
@@ -237,7 +237,7 @@ function ListHeader({ title, q, setQ, view, setView, onImport, onRefresh, refres
           borderRadius: 6, padding: 0, fontSize: 15, fontWeight: 600, fontFamily: FONT_SANS,
           opacity: refreshing ? 0.75 : 1, display: 'grid', placeItems: 'center', flexShrink: 0,
         }}>
-          <span style={{ display: 'inline-block', lineHeight: 1, animation: refreshing ? 'skillloom-spin 0.8s linear infinite' : undefined }}>↻</span>
+          <span style={{ display: 'inline-block', lineHeight: 1, animation: refreshing ? 'skilldock-spin 0.8s linear infinite' : undefined }}>↻</span>
         </button>
         <div style={{ display: 'flex', background: 'rgba(0,0,0,0.05)', borderRadius: 6, padding: 2 }}>
           {(['list', 'grid'] as const).map((m) => (
@@ -894,7 +894,7 @@ function ImportModal({ open, onClose, onAdd, pending, p }: {
             style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: FONT_SANS, outline: 'none', color: p.text, background: p.panel }} />
         </div>
         <div style={{ marginTop: 14, fontSize: 11, color: p.text3, fontFamily: MONO, padding: '8px 10px', background: 'rgba(0,0,0,0.04)', borderRadius: 6 }}>
-          Will be written to ~/.skillloom/skills/{name || '…'}/
+          Will be written to ~/.skilldock/skills/{name || '…'}/
         </div>
 
         <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
@@ -1526,7 +1526,7 @@ export default function App() {
               {filtered.length === 0 ? (
                 <div style={{ padding: 40, textAlign: 'center', color: p.text3, fontSize: 12 }}>
                   {active === 'central'
-                    ? <>No skills in <code style={{ fontFamily: MONO }}>~/.skillloom/skills/</code> yet.<br/>Use Initialize to migrate existing platform skills.</>
+                    ? <>No skills in <code style={{ fontFamily: MONO }}>~/.skilldock/skills/</code> yet.<br/>Use Initialize to migrate existing platform skills.</>
                     : <>No skills routed here.<br/>Toggle this platform on a skill in Central.</>}
                 </div>
               ) : config.view === 'list' ? (

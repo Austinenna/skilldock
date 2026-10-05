@@ -21,7 +21,7 @@ fn pl(id: &str, name: &str, short: &str, path: &str, group: &str, is_hub: bool) 
 }
 
 pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| vec![
-    pl("central",   "Central Skills",      "Central",   "~/.skillloom/skills/",                       "Core",    true),
+    pl("central",   "Central Skills",      "Central",   "~/.skilldock/skills/",                       "Core",    true),
     pl("claude",    "Claude Code",         "Claude",    "~/.claude/skills/",                          "Coding",  false),
     pl("codex",     "Codex CLI",           "Codex",     "~/.agents/skills/",                          "Coding",  false),
     pl("openclaw",  "OpenClaw 开爪",       "OpenClaw",  "~/.openclaw/skills/",                        "Lobster", false),

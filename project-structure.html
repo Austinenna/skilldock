@@ -1,0 +1,857 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SkillDock 项目目录结构说明</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f7f5ef;
+      --ink: #20242b;
+      --muted: #69707b;
+      --faint: #8b929e;
+      --panel: #ffffff;
+      --panel-2: #f1f4f6;
+      --line: #d7dce2;
+      --line-strong: #aeb7c2;
+      --blue: #2458a6;
+      --teal: #0f766e;
+      --rust: #9b4d24;
+      --gold: #a57811;
+      --red: #b42318;
+      --green: #237a3b;
+      --shadow: 0 18px 50px rgba(31, 39, 51, 0.12);
+      --mono: "SFMono-Regular", "Cascadia Code", "Liberation Mono", Menlo, monospace;
+      --sans: Avenir, "Gill Sans", "Segoe UI", "PingFang SC", "Hiragino Sans GB", sans-serif;
+      --serif: Charter, "STSong", "Songti SC", Georgia, serif;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        linear-gradient(90deg, rgba(36, 88, 166, 0.06) 1px, transparent 1px),
+        linear-gradient(0deg, rgba(36, 88, 166, 0.05) 1px, transparent 1px),
+        var(--paper);
+      background-size: 28px 28px;
+      color: var(--ink);
+      font-family: var(--sans);
+      letter-spacing: 0;
+    }
+
+    a { color: inherit; }
+
+    .page {
+      width: min(1480px, calc(100vw - 40px));
+      margin: 0 auto;
+      padding: 30px 0 56px;
+    }
+
+    .hero {
+      display: grid;
+      grid-template-columns: 1.1fr 0.9fr;
+      gap: 20px;
+      align-items: stretch;
+      min-height: 260px;
+    }
+
+    .hero-main,
+    .hero-side,
+    .panel {
+      background: rgba(255, 255, 255, 0.86);
+      border: 1px solid var(--line);
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(14px);
+    }
+
+    .hero-main {
+      padding: 34px 38px;
+      border-radius: 8px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero-main::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background:
+        linear-gradient(135deg, rgba(36, 88, 166, 0.12), transparent 42%),
+        repeating-linear-gradient(135deg, transparent 0 12px, rgba(15, 118, 110, 0.08) 12px 13px);
+      pointer-events: none;
+    }
+
+    .hero-content { position: relative; z-index: 1; }
+
+    .eyebrow {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--blue);
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .eyebrow::before {
+      content: "";
+      width: 26px;
+      height: 2px;
+      background: var(--blue);
+      display: inline-block;
+    }
+
+    h1 {
+      margin: 16px 0 12px;
+      font-family: var(--serif);
+      font-size: clamp(38px, 6vw, 76px);
+      line-height: 0.94;
+      font-weight: 700;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      max-width: 760px;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.72;
+      margin: 0;
+    }
+
+    .hero-side {
+      border-radius: 8px;
+      padding: 22px;
+      display: grid;
+      gap: 12px;
+      align-content: stretch;
+    }
+
+    .metric-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .metric {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #fff, #f8fafb);
+      border-radius: 8px;
+      padding: 16px;
+      min-height: 96px;
+    }
+
+    .metric strong {
+      display: block;
+      font-family: var(--serif);
+      font-size: 34px;
+      line-height: 1;
+      margin-bottom: 8px;
+    }
+
+    .metric span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .path-strip {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px 16px;
+      background: #20242b;
+      color: #f7f5ef;
+      font-family: var(--mono);
+      font-size: 13px;
+      overflow-x: auto;
+      white-space: nowrap;
+    }
+
+    .toolbar {
+      margin: 22px 0;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 14px;
+      align-items: center;
+    }
+
+    .search {
+      display: flex;
+      align-items: center;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.92);
+      box-shadow: 0 8px 24px rgba(31, 39, 51, 0.08);
+      padding: 0 14px;
+      height: 48px;
+    }
+
+    .search span {
+      color: var(--blue);
+      font-weight: 800;
+      margin-right: 10px;
+    }
+
+    .search input {
+      border: 0;
+      outline: 0;
+      background: transparent;
+      width: 100%;
+      color: var(--ink);
+      font: 15px var(--sans);
+    }
+
+    .quick-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      justify-content: flex-end;
+    }
+
+    .quick-links a,
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      height: 32px;
+      padding: 0 11px;
+      border-radius: 999px;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.88);
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(360px, 0.82fr) minmax(520px, 1.18fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .panel {
+      border-radius: 8px;
+      padding: 22px;
+      margin-bottom: 20px;
+    }
+
+    .panel h2 {
+      margin: 0 0 12px;
+      font-family: var(--serif);
+      font-size: 30px;
+      letter-spacing: 0;
+    }
+
+    .panel h3 {
+      margin: 26px 0 10px;
+      font-size: 15px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--blue);
+    }
+
+    .panel p {
+      color: var(--muted);
+      line-height: 1.72;
+      margin: 0 0 12px;
+    }
+
+    .legend {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 14px;
+    }
+
+    .tag.frontend { color: var(--blue); }
+    .tag.backend { color: var(--teal); }
+    .tag.config { color: var(--rust); }
+    .tag.asset { color: var(--gold); }
+    .tag.generated { color: var(--faint); }
+
+    .flow {
+      display: grid;
+      gap: 10px;
+      margin-top: 16px;
+    }
+
+    .flow-step {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 8px;
+      padding: 14px;
+      display: grid;
+      grid-template-columns: 34px 1fr;
+      gap: 10px;
+      align-items: start;
+    }
+
+    .flow-step b {
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      display: inline-grid;
+      place-items: center;
+      color: #fff;
+      background: var(--blue);
+      font-size: 13px;
+    }
+
+    .flow-step strong {
+      display: block;
+      margin-bottom: 4px;
+    }
+
+    .flow-step span {
+      color: var(--muted);
+      line-height: 1.55;
+      font-size: 13px;
+    }
+
+    .tree {
+      margin: 0;
+      padding: 0;
+      list-style: none;
+      font-family: var(--mono);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+
+    .tree ul {
+      list-style: none;
+      margin: 3px 0 3px 18px;
+      padding: 0 0 0 14px;
+      border-left: 1px solid var(--line);
+    }
+
+    .tree li {
+      padding: 4px 0;
+    }
+
+    .dir,
+    .file {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+    }
+
+    .dir::before,
+    .file::before {
+      display: inline-grid;
+      place-items: center;
+      width: 19px;
+      height: 19px;
+      border-radius: 5px;
+      font-family: var(--sans);
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .dir::before {
+      content: "D";
+      background: rgba(36, 88, 166, 0.12);
+      color: var(--blue);
+    }
+
+    .file::before {
+      content: "F";
+      background: rgba(15, 118, 110, 0.12);
+      color: var(--teal);
+    }
+
+    .note {
+      display: block;
+      margin-left: 28px;
+      color: var(--muted);
+      font-family: var(--sans);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    details {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.82);
+      margin: 10px 0;
+      overflow: hidden;
+    }
+
+    summary {
+      cursor: pointer;
+      padding: 14px 16px;
+      font-weight: 800;
+      color: var(--ink);
+      list-style: none;
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      align-items: center;
+    }
+
+    summary::-webkit-details-marker { display: none; }
+
+    summary::after {
+      content: "+";
+      color: var(--blue);
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    details[open] summary::after { content: "-"; }
+
+    .detail-body {
+      border-top: 1px solid var(--line);
+      padding: 10px 16px 16px;
+      background: #fbfcfd;
+    }
+
+    .file-list {
+      display: grid;
+      gap: 10px;
+    }
+
+    .file-row {
+      display: grid;
+      grid-template-columns: minmax(210px, 0.55fr) minmax(260px, 1fr);
+      gap: 16px;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+      align-items: start;
+    }
+
+    .file-row code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--ink);
+      word-break: break-all;
+    }
+
+    .file-row p {
+      margin: 0;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      margin-left: 8px;
+      padding: 2px 7px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      background: var(--panel-2);
+      color: var(--muted);
+      vertical-align: middle;
+    }
+
+    .badge.frontend { background: rgba(36, 88, 166, 0.1); color: var(--blue); }
+    .badge.backend { background: rgba(15, 118, 110, 0.1); color: var(--teal); }
+    .badge.config { background: rgba(155, 77, 36, 0.1); color: var(--rust); }
+    .badge.asset { background: rgba(165, 120, 17, 0.14); color: var(--gold); }
+    .badge.generated { background: rgba(105, 112, 123, 0.1); color: var(--muted); }
+
+    .callout {
+      border-left: 4px solid var(--teal);
+      background: rgba(15, 118, 110, 0.08);
+      padding: 14px 16px;
+      border-radius: 0 8px 8px 0;
+      color: var(--ink);
+      line-height: 1.65;
+    }
+
+    .hidden-by-search { display: none !important; }
+
+    @media (max-width: 1040px) {
+      .hero,
+      .layout,
+      .toolbar {
+        grid-template-columns: 1fr;
+      }
+
+      .quick-links { justify-content: flex-start; }
+
+      .file-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+      }
+    }
+
+    @media print {
+      body { background: #fff; }
+      .page { width: auto; margin: 0; padding: 0; }
+      .hero-main, .hero-side, .panel { box-shadow: none; break-inside: avoid; }
+      .toolbar { display: none; }
+      details { break-inside: avoid; }
+      details:not([open]) .detail-body { display: block; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="hero-main">
+        <div class="hero-content">
+          <div class="eyebrow">SkillDock Project Map</div>
+          <h1>项目目录结构说明</h1>
+          <p class="subtitle">
+            这份静态 HTML 用来快速看清 SkillDock 的整体组成：React + Vite 前端、Tauri Rust 后端、原型、文档、配置、图标资源，以及构建产物。页面中的“逐文件说明”覆盖当前仓库里值得维护的源码与资源文件；依赖目录和编译缓存按目录摘要处理。
+          </p>
+        </div>
+      </div>
+      <aside class="hero-side">
+        <div class="metric-grid">
+          <div class="metric"><strong>2</strong><span>主要运行层：前端 Webview + Rust/Tauri 后端</span></div>
+          <div class="metric"><strong>8</strong><span>Tauri IPC 命令：扫描、导入、删除、路由、配置</span></div>
+          <div class="metric"><strong>6</strong><span>后端源码文件，集中在 src-tauri/src</span></div>
+          <div class="metric"><strong>5</strong><span>前端源码文件，集中在 src</span></div>
+        </div>
+        <div class="path-strip">~/Projects/apps/skilldock</div>
+      </aside>
+    </section>
+
+    <nav class="toolbar" aria-label="页面工具栏">
+      <label class="search">
+        <span>查</span>
+        <input id="searchInput" type="search" placeholder="搜索文件、目录或职责，例如：routes、配置、图标、Tauri" />
+      </label>
+      <div class="quick-links">
+        <a href="#overview">总览</a>
+        <a href="#tree">目录树</a>
+        <a href="#backend">后端</a>
+        <a href="#frontend">前端</a>
+        <a href="#files">逐文件</a>
+      </div>
+    </nav>
+
+    <section id="overview" class="panel">
+      <h2>项目总览</h2>
+      <p>
+        SkillDock 是一个桌面端 Skill 管理器。前端负责三栏界面、列表、详情、设置和导入弹窗；后端通过 Tauri command 操作本地文件系统，把真实 skill 放在 <code>~/.skilldock/skills/</code>，再用 symlink 路由到 Claude、Codex、Cursor 等平台目录。
+      </p>
+      <div class="legend">
+        <span class="tag frontend">前端源码</span>
+        <span class="tag backend">后端源码</span>
+        <span class="tag config">配置与构建</span>
+        <span class="tag asset">资源与图标</span>
+        <span class="tag generated">生成/依赖产物</span>
+      </div>
+      <div class="flow">
+        <div class="flow-step"><b>1</b><div><strong>React UI 发起操作</strong><span>用户点击扫描、导入、删除或平台开关，前端从 <code>src/ipc.ts</code> 调用 Tauri <code>invoke()</code>。</span></div></div>
+        <div class="flow-step"><b>2</b><div><strong>Tauri 后端执行命令</strong><span><code>main.rs</code> 注册命令，Rust 模块分别处理平台定义、skill 扫描、symlink 路由和配置读写。</span></div></div>
+        <div class="flow-step"><b>3</b><div><strong>文件系统作为事实来源</strong><span>后端读取 <code>~/.skilldock/skills/</code> 和各平台 skills 目录，返回 skill 列表、路由状态和冲突信息。</span></div></div>
+      </div>
+    </section>
+
+    <div class="layout">
+      <section id="tree" class="panel">
+        <h2>目录树</h2>
+        <ul class="tree">
+          <li>
+            <span class="dir">skilldock/</span>
+            <span class="note">项目根目录，包含前端、Tauri 后端、原型、文档和资源。</span>
+            <ul>
+              <li><span class="file">README.md</span><span class="note">项目介绍、MVP 功能、启动方式和结构概览。</span></li>
+              <li><span class="file">DEVELOPMENT.md</span><span class="note">开发路线、架构设计、技术选型和未来阶段规划。</span></li>
+              <li><span class="file">package.json</span><span class="note">前端/Tauri npm 脚本和 JS 依赖声明。</span></li>
+              <li><span class="file">pnpm-lock.yaml</span><span class="note">pnpm 依赖锁文件。</span></li>
+              <li><span class="file">pnpm-workspace.yaml</span><span class="note">pnpm 工作区配置。</span></li>
+              <li><span class="file">vite.config.ts</span><span class="note">Vite 开发服务器和 React 插件配置。</span></li>
+              <li><span class="file">tsconfig.json</span><span class="note">浏览器端 TypeScript 编译配置。</span></li>
+              <li><span class="file">tsconfig.node.json</span><span class="note">Node/Vite 配置文件的 TypeScript 编译配置。</span></li>
+              <li><span class="file">index.html</span><span class="note">Vite 前端 HTML 入口。</span></li>
+              <li><span class="file">.gitignore</span><span class="note">Git 忽略规则。</span></li>
+              <li>
+                <span class="dir">src/</span>
+                <span class="note">正式 React + TypeScript 前端源码。</span>
+                <ul>
+                  <li><span class="file">App.tsx</span><span class="note">主应用 UI 与状态逻辑。</span></li>
+                  <li><span class="file">ipc.ts</span><span class="note">Tauri IPC 调用封装。</span></li>
+                  <li><span class="file">main.tsx</span><span class="note">React 挂载入口。</span></li>
+                  <li><span class="file">palettes.ts</span><span class="note">主题色板定义。</span></li>
+                  <li><span class="file">types.ts</span><span class="note">前端共享类型。</span></li>
+                </ul>
+              </li>
+              <li>
+                <span class="dir">src-tauri/</span>
+                <span class="note">Tauri 2 Rust 后端、应用配置、权限和图标。</span>
+                <ul>
+                  <li>
+                    <span class="dir">src/</span>
+                    <span class="note">后端业务源码。</span>
+                    <ul>
+                      <li><span class="file">main.rs</span><span class="note">Tauri 应用入口和命令注册。</span></li>
+                      <li><span class="file">platforms.rs</span><span class="note">平台清单、路径展开和平台查询。</span></li>
+                      <li><span class="file">skills.rs</span><span class="note">skill 扫描、导入、删除和路由状态计算。</span></li>
+                      <li><span class="file">routes.rs</span><span class="note">创建/删除平台 symlink。</span></li>
+                      <li><span class="file">config.rs</span><span class="note">用户偏好配置读写。</span></li>
+                      <li><span class="file">error.rs</span><span class="note">统一错误类型。</span></li>
+                    </ul>
+                  </li>
+                  <li><span class="file">Cargo.toml</span><span class="note">Rust crate 和依赖声明。</span></li>
+                  <li><span class="file">Cargo.lock</span><span class="note">Rust 依赖锁文件。</span></li>
+                  <li><span class="file">build.rs</span><span class="note">Tauri 构建脚本。</span></li>
+                  <li><span class="file">tauri.conf.json</span><span class="note">Tauri 应用窗口、构建、bundle 和图标配置。</span></li>
+                  <li><span class="file">capabilities/default.json</span><span class="note">Tauri 权限能力配置。</span></li>
+                  <li><span class="dir">icons/</span><span class="note">多平台应用图标资源。</span></li>
+                  <li><span class="dir">gen/schemas/</span><span class="note">Tauri 生成的权限 schema。</span></li>
+                  <li><span class="dir">target/</span><span class="note">Rust 编译缓存和产物。</span></li>
+                </ul>
+              </li>
+              <li>
+                <span class="dir">prototype/</span>
+                <span class="note">早期原型，保留交互和视觉参考。</span>
+                <ul>
+                  <li><span class="file">index.html</span><span class="note">原型 HTML 入口。</span></li>
+                  <li><span class="file">src/app.jsx</span><span class="note">原型主界面。</span></li>
+                  <li><span class="file">src/data.js</span><span class="note">原型假数据。</span></li>
+                  <li><span class="file">src/palettes.js</span><span class="note">原型色板。</span></li>
+                </ul>
+              </li>
+              <li><span class="dir">docs/plans/</span><span class="note">项目规划文档。</span></li>
+              <li><span class="dir">assets/icon-concepts/</span><span class="note">图标概念稿。</span></li>
+              <li><span class="dir">dist/</span><span class="note">Vite 构建输出，当前工作区存在但不在 Git 跟踪列表内。</span></li>
+              <li><span class="dir">node_modules/</span><span class="note">前端依赖安装目录，不属于项目源码。</span></li>
+            </ul>
+          </li>
+        </ul>
+      </section>
+
+      <section id="backend" class="panel">
+        <h2>后端重点</h2>
+        <p>
+          后端没有 HTTP 路由或数据库，主要是本地文件系统服务。它把 Tauri command 暴露给前端，负责扫描 central skills、创建/删除 symlink、保护真实目录不被误删，并把用户偏好保存到应用数据目录。
+        </p>
+        <div class="callout">
+          当前已实现的是 v1 MVP：平台列表、skill 扫描、导入、删除、路由开关、配置持久化。开发文档中提到的 AI 摘要、文件监听、SQLite 缓存、Keychain API key 暂未落地到当前代码。
+        </div>
+
+        <h3>命令列表</h3>
+        <div class="file-list">
+          <div class="file-row"><code>list_platforms()</code><p>返回后端硬编码的平台清单。</p></div>
+          <div class="file-row"><code>scan_skills()</code><p>确保 central 目录存在，扫描 skill 目录并计算大小、文件数、更新时间、路由状态和冲突。</p></div>
+          <div class="file-row"><code>import_skill(name, tagline)</code><p>创建新的 central skill 目录并写入基础 <code>SKILL.md</code> 模板。</p></div>
+          <div class="file-row"><code>delete_skill(id)</code><p>删除 central 中的真实 skill 目录，并清理所有指向它的平台 symlink。</p></div>
+          <div class="file-row"><code>add_route(skill_id, platform_id)</code><p>为目标平台创建指向 central skill 的 symlink。</p></div>
+          <div class="file-row"><code>remove_route(skill_id, platform_id)</code><p>只移除确认指向 central skill 的 symlink，拒绝删除真实文件或指向别处的链接。</p></div>
+          <div class="file-row"><code>get_config()</code><p>读取用户偏好；缺失或损坏时回退默认配置。</p></div>
+          <div class="file-row"><code>update_config(patch)</code><p>浅合并配置 patch，写回 <code>config.json</code> 并返回新配置。</p></div>
+        </div>
+      </section>
+    </div>
+
+    <section id="frontend" class="panel">
+      <h2>前端重点</h2>
+      <p>
+        前端是一个 Vite + React + TypeScript 单页应用。<code>App.tsx</code> 包含主要 UI 组件：侧栏、列表/网格、详情面板、平台路由开关、设置面板和导入弹窗。<code>ipc.ts</code> 是前后端边界，所有真实 IO 都交给 Rust。
+      </p>
+      <div class="file-list">
+        <div class="file-row"><code>src/main.tsx</code><p>创建 React root，并在 <code>#root</code> 上渲染 <code>App</code>。</p></div>
+        <div class="file-row"><code>src/App.tsx</code><p>应用主界面和状态中心；加载平台、配置、skill 列表，处理搜索、切换视图、增删 skill 和路由开关。</p></div>
+        <div class="file-row"><code>src/ipc.ts</code><p>把 Tauri <code>invoke()</code> 封装为 <code>api</code> 对象，前端其他代码只调用语义化方法。</p></div>
+        <div class="file-row"><code>src/types.ts</code><p>定义 <code>Platform</code>、<code>Skill</code>、<code>Config</code> 等共享类型，和 Rust 返回结构的 camelCase JSON 对齐。</p></div>
+        <div class="file-row"><code>src/palettes.ts</code><p>定义 cool、warm、slate 三套主题色，以及设置界面使用的色块选项。</p></div>
+      </div>
+    </section>
+
+    <section id="files" class="panel">
+      <h2>逐文件说明</h2>
+      <p>下面按模块分组列出当前仓库的源码、配置、文档和资源文件。搜索框会过滤这些条目。</p>
+
+      <details open data-search-block>
+        <summary>根目录文件 <span class="badge config">配置/入口</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>.gitignore</code><p>声明 Git 忽略规则，避免提交依赖、构建产物、系统缓存等文件。</p></div>
+          <div class="file-row"><code>README.md</code><p>项目说明文档：介绍 SkillDock 的用途、MVP 功能、启动步骤、项目结构和打包提示。</p></div>
+          <div class="file-row"><code>DEVELOPMENT.md</code><p>开发设计文档：记录项目目标、技术选型、整体架构、数据模型、后端命令、未来路线。</p></div>
+          <div class="file-row"><code>index.html</code><p>Vite 正式前端入口 HTML，提供 React 挂载点并加载 <code>src/main.tsx</code>。</p></div>
+          <div class="file-row"><code>package.json</code><p>声明 npm 包信息、脚本和 JS 依赖；主要脚本包括 <code>dev</code>、<code>build</code>、<code>preview</code>、<code>tauri</code>。</p></div>
+          <div class="file-row"><code>pnpm-lock.yaml</code><p>pnpm 锁文件，固定前端和 Tauri CLI 相关依赖版本。</p></div>
+          <div class="file-row"><code>pnpm-workspace.yaml</code><p>pnpm 工作区配置；当前项目用它标识工作区边界。</p></div>
+          <div class="file-row"><code>tsconfig.json</code><p>正式前端 TypeScript 配置，控制 JSX、模块解析、严格模式等编译行为。</p></div>
+          <div class="file-row"><code>tsconfig.node.json</code><p>给 Vite 配置等 Node 侧 TypeScript 文件使用的编译配置。</p></div>
+          <div class="file-row"><code>vite.config.ts</code><p>Vite 配置：启用 React 插件、固定开发端口 1420、为 Tauri 开发环境配置 host/HMR，并忽略 Rust 目录监听。</p></div>
+          <div class="file-row"><code>project-structure.html</code><p>当前生成的项目结构说明页，用于人工阅读和交接。</p></div>
+        </div>
+      </details>
+
+      <details open data-search-block>
+        <summary>正式前端 src/ <span class="badge frontend">React</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>src/main.tsx</code><p>React 应用启动入口，把 <code>App</code> 渲染到页面根节点。</p></div>
+          <div class="file-row"><code>src/App.tsx</code><p>主 UI 文件：包含侧栏、列表头、skill 行/卡片、详情区域、设置面板、导入弹窗和 App 根组件。</p></div>
+          <div class="file-row"><code>src/ipc.ts</code><p>Tauri IPC 封装层：把后端命令包装成 <code>api.listPlatforms()</code>、<code>api.scanSkills()</code> 等方法。</p></div>
+          <div class="file-row"><code>src/types.ts</code><p>共享类型定义：主题、密度、视图、平台、skill、路由冲突和配置。</p></div>
+          <div class="file-row"><code>src/palettes.ts</code><p>主题系统：提供三套视觉 palette 及色块预览数据。</p></div>
+        </div>
+      </details>
+
+      <details open data-search-block>
+        <summary>Tauri 后端 src-tauri/ <span class="badge backend">Rust</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>src-tauri/Cargo.toml</code><p>Rust 包和依赖配置；定义 crate 名称、版本、Tauri/serde/chrono/humansize 等依赖以及 release 优化策略。</p></div>
+          <div class="file-row"><code>src-tauri/Cargo.lock</code><p>Cargo 依赖锁文件，确保 Rust 依赖版本可复现。</p></div>
+          <div class="file-row"><code>src-tauri/build.rs</code><p>Tauri 构建脚本入口，调用 <code>tauri_build::build()</code> 生成必要构建信息。</p></div>
+          <div class="file-row"><code>src-tauri/tauri.conf.json</code><p>Tauri 应用配置：产品名、bundle id、开发/构建命令、窗口尺寸、标题栏样式、安全策略和应用图标。</p></div>
+          <div class="file-row"><code>src-tauri/capabilities/default.json</code><p>Tauri v2 权限配置，允许主窗口使用默认核心能力和窗口拖拽能力。</p></div>
+          <div class="file-row"><code>src-tauri/src/main.rs</code><p>Rust 后端入口：声明模块并注册所有可被前端调用的 Tauri command。</p></div>
+          <div class="file-row"><code>src-tauri/src/platforms.rs</code><p>平台注册表：定义 central、Claude、Codex、OpenClaw、Cursor 等平台的 id、名称、目录路径、分组和 hub 标记。</p></div>
+          <div class="file-row"><code>src-tauri/src/skills.rs</code><p>skill 管理核心：扫描 central 目录、解析 <code>SKILL.md</code> 描述、统计大小和文件数、计算路由状态、导入和删除 skill。</p></div>
+          <div class="file-row"><code>src-tauri/src/routes.rs</code><p>路由管理：添加平台 symlink、删除平台 symlink，并处理冲突和安全检查。</p></div>
+          <div class="file-row"><code>src-tauri/src/config.rs</code><p>配置存储：读取和更新用户偏好，保存到 Tauri app data 目录下的 <code>config.json</code>。</p></div>
+          <div class="file-row"><code>src-tauri/src/error.rs</code><p>统一错误模型：把 IO、JSON、非法名称、找不到平台/skill、冲突等错误序列化给前端。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>原型 prototype/ <span class="badge frontend">早期设计</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>prototype/index.html</code><p>早期原型入口，通常通过浏览器直接打开或加载 CDN 资源运行。</p></div>
+          <div class="file-row"><code>prototype/src/app.jsx</code><p>原型版完整 UI，展示三栏布局、设置和交互方式，是正式 <code>src/App.tsx</code> 的设计来源。</p></div>
+          <div class="file-row"><code>prototype/src/data.js</code><p>原型假数据：内置平台清单和示例 skills，用来模拟真实后端返回。</p></div>
+          <div class="file-row"><code>prototype/src/palettes.js</code><p>原型色板配置，定义早期 cool/warm/slate 主题。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>文档 docs/ <span class="badge config">规划</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>docs/plans/2026-05-28-skilldock-roadmap.md</code><p>SkillDock 路线图文档，记录 2026-05-28 版本规划和后续开发方向。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>资源 assets/ <span class="badge asset">概念图</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>assets/icon-concepts/skilldock-icon-v11-user-rounded-81.png</code><p>SkillDock 图标概念稿，用于应用图标设计参考。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>应用图标 src-tauri/icons/ <span class="badge asset">多平台资源</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>src-tauri/icons/32x32.png</code><p>通用 32x32 应用图标，供桌面平台或 bundle 配置引用。</p></div>
+          <div class="file-row"><code>src-tauri/icons/64x64.png</code><p>通用 64x64 应用图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/128x128.png</code><p>通用 128x128 应用图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/128x128@2x.png</code><p>高分屏 128x128@2x 应用图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/icon.png</code><p>通用 PNG 应用图标源。</p></div>
+          <div class="file-row"><code>src-tauri/icons/icon.icns</code><p>macOS 应用图标包，打包 .app 时使用。</p></div>
+          <div class="file-row"><code>src-tauri/icons/icon.ico</code><p>Windows 应用图标文件。</p></div>
+          <div class="file-row"><code>src-tauri/icons/StoreLogo.png</code><p>Windows Store 风格商店图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square30x30Logo.png</code><p>Windows 磁贴/Logo 资源，30x30 尺寸。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square44x44Logo.png</code><p>Windows 磁贴/Logo 资源，44x44 尺寸。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square71x71Logo.png</code><p>Windows 小磁贴 Logo 资源。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square89x89Logo.png</code><p>Windows 磁贴 Logo 资源，89x89 尺寸。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square107x107Logo.png</code><p>Windows 磁贴 Logo 资源，107x107 尺寸。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square142x142Logo.png</code><p>Windows 磁贴 Logo 资源，142x142 尺寸。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square150x150Logo.png</code><p>Windows 中等磁贴 Logo 资源。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square284x284Logo.png</code><p>Windows 高分屏磁贴 Logo 资源。</p></div>
+          <div class="file-row"><code>src-tauri/icons/Square310x310Logo.png</code><p>Windows 大磁贴 Logo 资源。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>Android 图标 src-tauri/icons/android/ <span class="badge asset">移动端资源</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-anydpi-v26/ic_launcher.xml</code><p>Android 自适应启动图标 XML 定义。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/values/ic_launcher_background.xml</code><p>Android 启动图标背景色资源。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-mdpi/ic_launcher.png</code><p>Android mdpi 标准启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-mdpi/ic_launcher_foreground.png</code><p>Android mdpi 自适应图标前景层。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-mdpi/ic_launcher_round.png</code><p>Android mdpi 圆形启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-hdpi/ic_launcher.png</code><p>Android hdpi 标准启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-hdpi/ic_launcher_foreground.png</code><p>Android hdpi 自适应图标前景层。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-hdpi/ic_launcher_round.png</code><p>Android hdpi 圆形启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xhdpi/ic_launcher.png</code><p>Android xhdpi 标准启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xhdpi/ic_launcher_foreground.png</code><p>Android xhdpi 自适应图标前景层。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xhdpi/ic_launcher_round.png</code><p>Android xhdpi 圆形启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xxhdpi/ic_launcher.png</code><p>Android xxhdpi 标准启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xxhdpi/ic_launcher_foreground.png</code><p>Android xxhdpi 自适应图标前景层。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xxhdpi/ic_launcher_round.png</code><p>Android xxhdpi 圆形启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher.png</code><p>Android xxxhdpi 标准启动图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_foreground.png</code><p>Android xxxhdpi 自适应图标前景层。</p></div>
+          <div class="file-row"><code>src-tauri/icons/android/mipmap-xxxhdpi/ic_launcher_round.png</code><p>Android xxxhdpi 圆形启动图标。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>iOS 图标 src-tauri/icons/ios/ <span class="badge asset">移动端资源</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-20x20@1x.png</code><p>iOS 通知/设置场景 20pt 1x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-20x20@2x.png</code><p>iOS 20pt 2x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-20x20@2x-1.png</code><p>iOS 20pt 2x 图标副本，用于不同图标槽位。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-20x20@3x.png</code><p>iOS 20pt 3x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-29x29@1x.png</code><p>iOS 29pt 1x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-29x29@2x.png</code><p>iOS 29pt 2x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-29x29@2x-1.png</code><p>iOS 29pt 2x 图标副本，用于不同图标槽位。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-29x29@3x.png</code><p>iOS 29pt 3x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-40x40@1x.png</code><p>iOS 40pt 1x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-40x40@2x.png</code><p>iOS 40pt 2x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-40x40@2x-1.png</code><p>iOS 40pt 2x 图标副本，用于不同图标槽位。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-40x40@3x.png</code><p>iOS 40pt 3x 图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-60x60@2x.png</code><p>iPhone 60pt 2x 主屏图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-60x60@3x.png</code><p>iPhone 60pt 3x 主屏图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-76x76@1x.png</code><p>iPad 76pt 1x 主屏图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-76x76@2x.png</code><p>iPad 76pt 2x 主屏图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-83.5x83.5@2x.png</code><p>iPad Pro 83.5pt 2x 主屏图标。</p></div>
+          <div class="file-row"><code>src-tauri/icons/ios/AppIcon-512@2x.png</code><p>App Store 或高分辨率图标资源。</p></div>
+        </div>
+      </details>
+
+      <details data-search-block>
+        <summary>构建产物与生成目录 <span class="badge generated">非核心源码</span></summary>
+        <div class="detail-body file-list">
+          <div class="file-row"><code>dist/index.html</code><p>Vite 生产构建后的 HTML 输出，供 Tauri 打包时作为前端资源读取；当前未被 Git 跟踪。</p></div>
+          <div class="file-row"><code>dist/assets/index-CzHZT6GI.js</code><p>Vite 打包后的前端 JS bundle，文件名带 hash；当前未被 Git 跟踪。</p></div>
+          <div class="file-row"><code>src-tauri/gen/schemas/acl-manifests.json</code><p>Tauri 生成的 ACL manifest schema，用于权限配置校验。</p></div>
+          <div class="file-row"><code>src-tauri/gen/schemas/capabilities.json</code><p>Tauri 生成的 capabilities schema。</p></div>
+          <div class="file-row"><code>src-tauri/gen/schemas/desktop-schema.json</code><p>Tauri 生成的桌面端权限 schema，<code>capabilities/default.json</code> 引用它。</p></div>
+          <div class="file-row"><code>src-tauri/gen/schemas/macOS-schema.json</code><p>Tauri 生成的 macOS 权限 schema。</p></div>
+          <div class="file-row"><code>node_modules/</code><p>pnpm 安装的第三方 JS 依赖目录，体量大、可重新安装，不逐文件维护。</p></div>
+          <div class="file-row"><code>src-tauri/target/</code><p>Cargo/Rust 编译输出和缓存目录，体量大、可重新生成，不逐文件维护。</p></div>
+          <div class="file-row"><code>.git/</code><p>Git 仓库内部数据库和历史记录，不属于项目业务源码。</p></div>
+        </div>
+      </details>
+    </section>
+  </main>
+
+  <script>
+    const input = document.getElementById('searchInput');
+    const searchableRows = Array.from(document.querySelectorAll('.file-row'));
+    const searchableBlocks = Array.from(document.querySelectorAll('[data-search-block]'));
+    const treeItems = Array.from(document.querySelectorAll('.tree li'));
+
+    function normalize(text) {
+      return text.toLowerCase().trim();
+    }
+
+    function applySearch() {
+      const q = normalize(input.value);
+      searchableRows.forEach((row) => {
+        const hit = !q || normalize(row.textContent).includes(q);
+        row.classList.toggle('hidden-by-search', !hit);
+      });
+
+      searchableBlocks.forEach((block) => {
+        const rows = Array.from(block.querySelectorAll('.file-row'));
+        const hasVisible = rows.some((row) => !row.classList.contains('hidden-by-search'));
+        const selfHit = normalize(block.querySelector('summary')?.textContent || '').includes(q);
+        block.classList.toggle('hidden-by-search', !!q && !hasVisible && !selfHit);
+        if (q && (hasVisible || selfHit)) block.open = true;
+      });
+
+      treeItems.forEach((item) => {
+        const hit = !q || normalize(item.textContent).includes(q);
+        item.classList.toggle('hidden-by-search', !hit);
+      });
+    }
+
+    input.addEventListener('input', applySearch);
+  </script>
+</body>
+</html>

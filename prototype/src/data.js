@@ -3,7 +3,7 @@
 (function () {
   const PLATFORMS = [
     // visible
-    { id: 'central',   name: 'Central Skills', short: 'Central', path: '~/.skillloom/skills/',       group: 'Core',    visible: true,  isHub: true },
+    { id: 'central',   name: 'Central Skills', short: 'Central', path: '~/.skilldock/skills/',       group: 'Core',    visible: true,  isHub: true },
     { id: 'claude',    name: 'Claude Code',    short: 'Claude',  path: '~/.claude/skills/',          group: 'Coding',  visible: true },
     { id: 'codex',     name: 'Codex CLI',      short: 'Codex',   path: '~/.agents/skills/',          group: 'Coding',  visible: true },
     { id: 'openclaw',  name: 'OpenClaw 开爪',   short: 'OpenClaw', path: '~/.openclaw/skills/',        group: 'Lobster', visible: true },

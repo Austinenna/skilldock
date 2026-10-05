@@ -1,4 +1,4 @@
-# SkillLoom 开发文档
+# SkillDock 开发文档
 
 > 把当前的 HTML/React 原型，做成一个能在 macOS 上跑的真应用，并为后续扩展到 Windows/Linux 留好接口。
 
@@ -6,12 +6,12 @@
 
 ## 1. 项目目标
 
-SkillLoom 是一个**集中式 Skill 管理器**：
+SkillDock 是一个**集中式 Skill 管理器**：
 
-- 所有 skill 真实存放在 **中央目录** `~/.skillloom/skills/`
+- 所有 skill 真实存放在 **中央目录** `~/.skilldock/skills/`
   （**注意**：刻意避开 `~/.agents/skills/`——那是 Codex CLI 自己的目录，作为中央仓库会污染 Codex 的真实文件，而且 Codex 的路由 symlink 会指回自己，形成循环）
 - 各 AI 工具（Claude Code、Codex CLI、OpenClaw 等）的 skill 目录里只放**符号链接**，指向中央目录里的真实条目
-- 用户在 SkillLoom 里通过开关勾选「这个 skill 路由到哪些平台」，本质就是新建 / 删除对应的 symlink
+- 用户在 SkillDock 里通过开关勾选「这个 skill 路由到哪些平台」，本质就是新建 / 删除对应的 symlink
 - 每个 skill 提供一段 AI 自动生成的摘要，帮助用户快速理解作用
 - 当前阶段聚焦 macOS，后续再扩展到其他平台
 
@@ -20,7 +20,7 @@ SkillLoom 是一个**集中式 Skill 管理器**：
 ## 2. 当前实现状态
 
 ```
-SkillLoom/
+skilldock/
 ├── prototype/          # 早期 HTML/React CDN 原型，留作设计参考
 ├── src/                # Vite + React + TypeScript 前端
 ├── src-tauri/          # Tauri 2 + Rust 后端
@@ -32,12 +32,12 @@ SkillLoom/
 - 后端已经实现真实文件系统扫描、SKILL.md metadata 解析、symlink 路由、导入、删除、详情读取、配置持久化、文件监听、会话内 API key 请求和 AI 摘要缓存。
 - 路由和删除路径已经做 skill id 校验、canonical path containment、真实目录拒删、冲突 symlink 保护。
 - 前端已经有非阻塞 notice、pending 状态、手动 Refresh、`skills-changed` 自动刷新、API key 设置入口和 AI Summary 状态。
-- macOS `.app` bundle 已开启，可跑本地 unsigned build。
+- macOS `.app` + `.dmg` bundle 已开启，可跑本地 ad-hoc signed release build。
 
 **当前还差三件事：**
 
 1. **真实 API 凭证验证**（粘贴本次会话 key 后跑一次 live summary）
-2. **可分发的 macOS .app**（Developer ID 签名、notarization）
+2. **Developer ID 公证分发**（证书、notarization）
 3. **CI / release workflow**（PR 验证、tag 打包）
 
 ---
@@ -96,7 +96,7 @@ SkillLoom/
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                    SkillLoom.app                        │
+│                    SkillDock.app                        │
 │  ┌──────────────────────────┐                           │
 │  │   Frontend (Webview)     │                           │
 │  │   Vite + React + TS      │                           │
@@ -113,12 +113,12 @@ SkillLoom/
 │  │   Tauri Commands         │                           │
 │  │                          │                           │
 │  │   ┌────────────────┐     │                           │
-│  │   │ skill_scanner  │ ───▶│ ~/.skillloom/skills/         │
+│  │   │ skill_scanner  │ ───▶│ ~/.skilldock/skills/         │
 │  │   │ route_manager  │ ───▶│ ~/.claude/skills/         │
 │  │   │ ai_summarizer  │ ───▶│ ~/.openclaw/skills/  ...  │
 │  │   │ fs_watcher     │     │                           │
 │  │   │ config_store   │ ───▶│ ~/Library/App Support/    │
-│  │   └────────────────┘     │     SkillLoom/            │
+│  │   └────────────────┘     │     skilldock/            │
 │  └──────────────────────────┘                           │
 └─────────────────────────────────────────────────────────┘
                      │
@@ -175,7 +175,7 @@ export interface Platform {
 
 ### 5.3 App 偏好（持久化在磁盘）
 
-存放位置：`~/Library/Application Support/SkillLoom/config.json`
+存放位置：`~/Library/Application Support/skilldock/config.json`
 
 ```json
 {
@@ -193,7 +193,7 @@ API key 不存这里，也不走系统钥匙串；Settings 里粘贴后只在当
 
 ### 5.4 AI 摘要缓存（SQLite）
 
-存放位置：`~/Library/Application Support/SkillLoom/cache.db`
+存放位置：`~/Library/Application Support/skilldock/cache.db`
 
 ```sql
 CREATE TABLE ai_summary (
@@ -228,13 +228,13 @@ get_skill_detail(id: String) -> SkillDetail   // 含完整 SKILL.md 内容
 add_route(skill_id: String, platform_id: String) -> Result<()>
 remove_route(skill_id: String, platform_id: String) -> Result<()>
 // 内部实现：
-//   add:    symlink(~/.skillloom/skills/<id>, ~/.claude/skills/<id>)
+//   add:    symlink(~/.skilldock/skills/<id>, ~/.claude/skills/<id>)
 //   remove: 先确认 ~/.claude/skills/<id> 是 symlink 且指向 central，再 unlink
 ```
 
 **安全检查（必须）：**
 
-- 创建 symlink 前确保目标在 `~/.skillloom/skills/` 下，防止做出指向系统目录的链接
+- 创建 symlink 前确保目标在 `~/.skilldock/skills/` 下，防止做出指向系统目录的链接
 - 删除前必须先 `symlink_metadata` 判断是 symlink，**绝不能 rm 真目录**
 - 平台目标目录不存在时**自动创建**（用户可能从没装过那个工具）
 
@@ -245,7 +245,7 @@ import_skill(name: String, description: String) -> Result<Skill>
 delete_skill(id: String) -> Result<()>
 // delete 实现：
 //   1. 遍历所有平台 skills/ 目录，删掉指向该 skill 的 symlink
-//   2. 删除 ~/.skillloom/skills/<id> 真目录
+//   2. 删除 ~/.skilldock/skills/<id> 真目录
 //   3. 删除 AI 摘要缓存行
 ```
 
@@ -265,7 +265,7 @@ test_ai_config() -> Result<AiTestResult>
 ```rust
 // 不是 command，是后台任务
 // 启动时跑 notify::Watcher，监听：
-//   ~/.skillloom/skills/
+//   ~/.skilldock/skills/
 //   每个 visible 平台的 skills/
 // 变化时 emit "skills-changed" 事件，前端 listen 后 invalidate React Query
 ```
@@ -289,7 +289,7 @@ generate_summary(skill_id: String, force: bool, api_key: Option<String>) -> Resu
 
 ```bash
 # 一次性初始化（在临时目录）
-pnpm create tauri-app skillloom
+pnpm create tauri-app skilldock
 # 选 React + TypeScript + pnpm
 
 # 然后把当前 src/app.jsx 的组件拆进新工程
@@ -298,7 +298,7 @@ pnpm create tauri-app skillloom
 迁移后的目录大致：
 
 ```
-SkillLoom/
+skilldock/
 ├── src/                         # 前端
 │   ├── main.tsx
 │   ├── App.tsx
@@ -402,11 +402,11 @@ useEffect(() => {
 
 ### 8.1 路径展开
 
-`~/.skillloom/skills/` 这类带 `~` 的路径在 Rust 里要展开：
+`~/.skilldock/skills/` 这类带 `~` 的路径在 Rust 里要展开：
 
 ```rust
 let home = dirs::home_dir().ok_or(AppError::NoHomeDir)?;
-let central = home.join(".skillloom").join("skills");
+let central = home.join(".skilldock").join("skills");
 ```
 
 用 `dirs` crate，不要手 parse `$HOME`。
@@ -416,7 +416,7 @@ let central = home.join(".skillloom").join("skills");
 ```rust
 // Tauri 提供
 let app_data = app.path().app_data_dir()?;
-// macOS: ~/Library/Application Support/com.skillloom.app/
+// macOS: ~/Library/Application Support/com.skilldock.app/
 ```
 
 ### 8.3 API Key → Session Memory
@@ -436,12 +436,12 @@ generate_summary(skill_id: String, force: bool, api_key: Option<String>) -> Resu
 
 代价：**不能上 Mac App Store**，只能从官网/GitHub Releases 分发。对开发者工具来说完全可接受。
 
-### 8.5 本地 unsigned build
+### 8.5 本地 macOS release build
 
-当前已开启 Tauri `.app` bundle，可在本机验证 unsigned app 产物：
+当前已开启 Tauri `.app` + `.dmg` bundle，可在本机生成 ad-hoc signed 产物：
 
 ```bash
-pnpm tauri build
+pnpm release:mac
 ```
 
 输出目录：
@@ -450,16 +450,26 @@ pnpm tauri build
 src-tauri/target/release/bundle/
 ```
 
-这个构建没有 Developer ID 签名，也没有 notarization，适合自己机器 smoke test；直接发给别人时可能触发 Gatekeeper，需要对方手动右键打开。DMG 生成留到签名/公证发布流程一起处理。
+如果钥匙串里没有 Developer ID Application 证书，脚本会自动使用 ad-hoc 签名，适合自己机器 smoke test；直接发给别人时仍可能触发 Gatekeeper，需要对方手动右键打开。
+
+正式分发前配置证书和 notarization profile：
+
+```bash
+SKILLDOCK_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+SKILLDOCK_NOTARY_PROFILE="skilldock-notary" \
+pnpm release:mac
+```
+
+脚本会执行：Tauri release build → 重新签名 `.app` → 用已签名 app 重建 DMG → 签名 DMG → 可选 notarize + staple → 生成 SHA-256。
 
 ### 8.6 Codesigning + Notarization
 
-每次发版的硬性流程，在 GitHub Actions 里跑：
+每次正式发版的硬性流程，当前可在本机跑，后续搬到 GitHub Actions：
 
 1. 准备 **Developer ID Application** 证书（年费 $99 的 Apple Developer Program）
-2. `tauri build --target universal-apple-darwin` 出 arm64 + x86_64 通用二进制
-3. 用 `tauri-action` 自动签名 + notarize（apple-id / app-specific-password / team-id 走环境变量）
-4. 产物：`.dmg` + `.app.tar.gz`（前者给人下载，后者给 updater）
+2. `SKILLDOCK_TARGET=universal-apple-darwin pnpm release:mac` 出 arm64 + x86_64 通用二进制
+3. 用 `SKILLDOCK_SIGNING_IDENTITY` 签名，用 `SKILLDOCK_NOTARY_PROFILE` 走 notarytool 公证
+4. 产物：`.dmg` + `.sha256`（后续接 updater 时再加 `.app.tar.gz`）
 
 不做这步：用户首次打开会撞 Gatekeeper 提示「无法验证开发者」，几乎没人会去走「右键 → 打开」的绕路。
 
@@ -468,7 +478,7 @@ src-tauri/target/release/bundle/
 Tauri 内置 updater：
 
 - 后端在 `Cargo.toml` 启 `tauri = { features = ["updater"] }`
-- 配 `tauri.conf.json` 里的 `updater.endpoints` 指向 `https://releases.skillloom.app/{{target}}/{{current_version}}`
+- 配 `tauri.conf.json` 里的 `updater.endpoints` 指向 `https://releases.skilldock.app/{{target}}/{{current_version}}`
 - 该 endpoint 返回签名后的 JSON（公钥校验，防中间人）
 - GitHub Releases + 一个简单的 Cloudflare Worker / Vercel function 转发即可
 
@@ -485,7 +495,7 @@ Tauri 内置 updater：
 - [x] `list_platforms` / `scan_skills` 跑通
 - [x] 真实读取 SKILL.md frontmatter（Rust `serde_yaml`）
 - [x] 列表 / 详情显示真实数据
-- [x] **里程碑**：能跑起来看自己 `~/.skillloom/skills/` 真实内容
+- [x] **里程碑**：能跑起来看自己 `~/.skilldock/skills/` 真实内容
 
 ### Phase 2 — Symlink 路由（1.5 天）
 - [x] `add_route` / `remove_route` 实现 + 单元测试
@@ -521,9 +531,11 @@ Tauri 内置 updater：
 
 ### Phase 7 — 打包分发（2 天，含跑通 CI）
 - [x] 启用本地 unsigned Tauri `.app` bundle
+- [x] 本地 `.app` + `.dmg` release 脚本
+- [x] ad-hoc 签名和 checksum 生成
 - [ ] Apple Developer ID 证书申请（如果还没有）
 - [ ] `tauri-action` workflow，PR / tag 触发
-- [ ] 通用二进制 + DMG + notarization
+- [ ] 通用二进制 + Developer ID notarization
 - [ ] 简单官网（GitHub Pages 即可）放下载链接
 - [ ] **里程碑**：朋友下载装 .app，双击能直接跑
 
@@ -542,8 +554,8 @@ Tauri 内置 updater：
 
 - AI 摘要的 live API 请求需要用户自行配置 provider、endpoint、model 和 API key；Settings 可测试连接，当前本地验证不提交任何真实密钥。
 - `notify` watcher 在启动时读取一次隐藏平台配置；运行中改变可见平台后，手动 Refresh 仍是兜底。
-- macOS `.app` bundle 已开启，但当前只适合本机 unsigned build；正式分发还需要签名、notarization 和 DMG/release 流程。
-- 还没有 GitHub Actions CI，发布流程需要在 Phase 7 补齐。
+- macOS `.app` + `.dmg` release 脚本已开启；当前机器没有 Developer ID 证书时只会生成 ad-hoc signed 本地验证包。
+- 还没有 GitHub Actions CI，正式 tag 发布流程需要在 Phase 7 补齐。
 
 ## 9.2 本地 GitHub 与开发命令
 
@@ -572,7 +584,7 @@ pnpm tauri dev
 后续 CI 建议：
 
 - PR：跑 `pnpm build`、`cargo check`、`cargo test`
-- tag：跑 `pnpm tauri build`，并在证书准备好后加入 signing / notarization
+- tag：跑 `pnpm release:mac`，并在证书准备好后启用 Developer ID notarization
 
 ---
 
@@ -611,8 +623,8 @@ pnpm tauri dev
 | 维度 | macOS | Linux | Windows |
 |---|---|---|---|
 | Symlink | 原生 `symlink()` | 原生 `symlink()` | **需要管理员或开发者模式**，否则降级到 hardlink / junction |
-| 配置目录 | `~/Library/Application Support/SkillLoom/` | `~/.config/skillloom/` | `%APPDATA%\SkillLoom\` |
-| 中央目录默认 | `~/.skillloom/skills/` | 同 | `%USERPROFILE%\.skillloom\skills\` |
+| 配置目录 | `~/Library/Application Support/skilldock/` | `~/.config/skilldock/` | `%APPDATA%\SkillDock\` |
+| 中央目录默认 | `~/.skilldock/skills/` | 同 | `%USERPROFILE%\.skilldock\skills\` |
 | 密钥存储 | 不持久化，仅会话内存 | 不持久化，仅会话内存 | 不持久化，仅会话内存 |
 | 代码签名 | Developer ID + notarize | 一般不签 | Authenticode 证书 |
 
@@ -649,8 +661,8 @@ mkdir -p prototype && mv index.html src prototype/
 
 # 起一个新的 Tauri 工程
 pnpm create tauri-app .
-#   App name: skillloom
-#   Window title: SkillLoom
+#   App name: skilldock
+#   Window title: SkillDock
 #   Package manager: pnpm
 #   UI template: React
 #   UI flavor: TypeScript

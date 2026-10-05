@@ -808,7 +808,7 @@ mod tests {
                 .expect("clock should be after unix epoch")
                 .as_nanos();
             let root = env::temp_dir().join(format!(
-                "skillloom-init-test-{}-{}-{}",
+                "skilldock-init-test-{}-{}-{}",
                 std::process::id(),
                 nonce,
                 name

@@ -1,4 +1,4 @@
-# SkillLoom 实施报告
+# SkillDock 实施报告
 
 ## 任务 1：添加 Skill ID 校验
 
@@ -268,7 +268,7 @@
 - `pnpm tauri build`
 - `git diff --check`
 - 结果：前端构建、release 二进制构建和 unsigned `.app` bundle 均通过。
-- Bundle 输出：`src-tauri/target/release/bundle/macos/SkillLoom.app`（4.3M）。
+- Bundle 输出：`src-tauri/target/release/bundle/macos/SkillDock.app`（4.3M）。
 - 备注：第一次 all-target bundle 尝试已生成 `.app`，但在 DMG 脚本阶段失败，因此当前 bundle target 有意收窄为 `.app`。
 
 ## 任务 13：调整 SQLite 缓存实现

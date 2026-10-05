@@ -281,7 +281,7 @@ struct ChatChoice {
 
 fn summary_prompt(skill_id: &str, skill_md: &str) -> String {
     format!(
-        "Summarize this SkillLoom skill for a local skill manager UI.\n\
+        "Summarize this SkillDock skill for a local skill manager UI.\n\
          Skill id: {skill_id}\n\n\
          Requirements:\n\
          - Write 2 concise sentences.\n\
@@ -323,7 +323,7 @@ fn resolve_ai_config(config: &config::Config) -> AiRequestConfig {
 
 fn request_with_curl(endpoint: &str, headers: &[(&str, String)], body: &[u8]) -> Result<Vec<u8>> {
     let temp_path = std::env::temp_dir().join(format!(
-        "skillloom-ai-{}-{}.json",
+        "skilldock-ai-{}-{}.json",
         std::process::id(),
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -426,7 +426,7 @@ fn request_anthropic_prompt(
     let request = AnthropicRequest {
         model: model.into(),
         max_tokens,
-        system: "You write concise, accurate responses for SkillLoom.".into(),
+        system: "You write concise, accurate responses for SkillDock.".into(),
         messages: vec![AnthropicMessage {
             role: "user".into(),
             content: prompt,

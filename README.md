@@ -1,11 +1,11 @@
-# SkillLoom
+# SkillDock
 
-集中式 Skill 管理器 —— 所有 skill 真实存放在 `~/.skillloom/skills/`，各 AI 工具的目录里只放符号链接。
+集中式 Skill 管理器 —— 所有 skill 真实存放在 `~/.skilldock/skills/`，各 AI 工具的目录里只放符号链接。
 
 **当前 MVP 功能：**
 
 - 三栏 macOS 原生窗口（侧栏 / 列表 / 详情）
-- 扫描 `~/.skillloom/skills/`，列出所有 skill
+- 扫描 `~/.skilldock/skills/`，列出所有 skill
 - 解析 `SKILL.md` frontmatter：`name` / `description` / `version` / `tags`
 - 详情接口返回 `SKILL.md`，详情页显示真实 source path 和文件列表
 - 按平台开关路由（创建/删除 symlink）
@@ -15,20 +15,20 @@
 - 文件监听：central / 可见平台目录变化后自动刷新，保留手动 Refresh 兜底
 - 路径和 skill id 安全校验，避免路径穿越和误删真实目录
 - 非阻塞错误通知和操作 pending 状态
-- 三套主题、列表/网格视图、紧凑/舒适密度（持久化到 `~/Library/Application Support/com.skillloom.desktop/config.json`）
+- 三套主题、列表/网格视图、紧凑/舒适密度（持久化到 `~/Library/Application Support/com.skilldock.desktop/config.json`）
 - API key 只在当前 App 会话内临时使用，不写入配置文件，也不保存到 macOS Keychain
 - AI 摘要支持 Anthropic Messages 和 Chat Completions 两种自定义端点；Settings 支持连接测试
 - AI 摘要按 `SKILL.md` 内容 hash + provider/model/endpoint 缓存
 - 没有配置 key 时，AI 摘要会降级显示 frontmatter description
 
-下一阶段再做：签名/公证后的正式分发、CI release workflow、批量路由。
+下一阶段再做：Developer ID 证书接入后的正式公证、CI release workflow、批量路由。
 
 ## 当前限制
 
 - AI 摘要的 live API 请求需要用户在 Settings 里配置 provider、endpoint、model，并粘贴本次会话使用的 API key；API key 不持久化，可用 Test 按钮先验证。
-- macOS `.app` bundle 已开启，但当前是 unsigned local build；正式发给别人前还需要 Developer ID 签名、notarization 和 DMG/release 流程。
+- macOS `.app` + `.dmg` release 流程已开启；本机没有 Developer ID 证书时会使用 ad-hoc 签名，正式分发前仍需要 Apple notarization。
 - watcher 只在启动时读取一次当前隐藏平台配置；运行中修改平台可见性后，仍可用手动 Refresh 兜底。
-- 还没有 GitHub Actions CI / release workflow。
+- 还没有 GitHub Actions CI；当前 release 流程先在本机执行。
 
 ## 首次启动
 
@@ -46,7 +46,7 @@ pnpm install
 pnpm tauri dev
 ```
 
-第一次启动会自动创建空目录 `~/.skillloom/skills/`。点 ＋ Import 加 skill 试试，或者把你已有的 skill 复制进去。
+第一次启动会自动创建空目录 `~/.skilldock/skills/`。点 ＋ Import 加 skill 试试，或者把你已有的 skill 复制进去。
 
 ## 开发命令
 
@@ -69,12 +69,12 @@ git status --short --branch
 git log --oneline --decorate -5
 ```
 
-当前项目以 `main` 为主线；每个 roadmap 任务完成验证后单独提交。后续发布前再补 GitHub Actions：PR 上跑 `pnpm build`、`cargo check`、`cargo test`，tag 上跑 Tauri 打包。
+当前项目以 `main` 为主线；每个 roadmap 任务完成验证后单独提交。后续再补 GitHub Actions：PR 上跑 `pnpm build`、`cargo check`、`cargo test`，tag 上跑 `pnpm release:mac`。
 
 ## 项目结构
 
 ```
-SkillLoom/
+skilldock/
 ├── prototype/          # 之前的 HTML/React CDN 原型，留作设计参考
 ├── src/                # Vite + React + TS 前端
 │   ├── App.tsx         # 所有 UI 组件
@@ -95,12 +95,28 @@ SkillLoom/
 └── DEVELOPMENT.md      # 完整开发文档
 ```
 
-## 打包成 .app
+## 打包发布 macOS 版本
 
-本地 unsigned build：
+本地打包 `.app` + `.dmg`：
 
 ```bash
-pnpm tauri build
+pnpm release:mac
 ```
 
-`.app` 产物会写到 `src-tauri/target/release/bundle/macos/SkillLoom.app`。这个构建适合自己机器验证；正式分发给别人前，需要配置 Apple Developer ID 签名、notarization 和 DMG/release 流程。完整流程见 `DEVELOPMENT.md` §8。
+产物会写到：
+
+```text
+src-tauri/target/release/bundle/macos/SkillDock.app
+src-tauri/target/release/bundle/dmg/SkillDock_0.1.0_aarch64.dmg
+src-tauri/target/release/bundle/dmg/SkillDock_0.1.0_aarch64.dmg.sha256
+```
+
+如果本机没有 Developer ID Application 证书，脚本会使用 ad-hoc 签名，适合本机验证但不会通过 Gatekeeper 公证。正式分发前先在钥匙串安装证书，并创建 notarytool profile：
+
+```bash
+SKILLDOCK_SIGNING_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+SKILLDOCK_NOTARY_PROFILE="skilldock-notary" \
+pnpm release:mac
+```
+
+完整流程见 `DEVELOPMENT.md` §8。

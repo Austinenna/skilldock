@@ -399,7 +399,7 @@ pub fn compute_routes(skill_id: &str) -> (Vec<String>, Vec<RouteConflict>) {
             conflicts.push(RouteConflict {
                 platform_id: p.id.clone(),
                 message: format!(
-                    "{}{} is a symlink, but SkillLoom could not read its target.",
+                    "{}{} is a symlink, but SkillDock could not read its target.",
                     p.path, skill_id
                 ),
             });
@@ -594,10 +594,10 @@ mod tests {
 
     #[test]
     fn compares_links_with_missing_normalized_components() {
-        let source = PathBuf::from("/tmp/skillloom-central/example");
+        let source = PathBuf::from("/tmp/skilldock-central/example");
         let canonical_source = source.clone();
-        let target = PathBuf::from("/tmp/skillloom-platform/example");
-        let link = PathBuf::from("/tmp/skillloom-central/missing/../example");
+        let target = PathBuf::from("/tmp/skilldock-platform/example");
+        let link = PathBuf::from("/tmp/skilldock-central/missing/../example");
 
         assert!(link_points_to_path(
             link,

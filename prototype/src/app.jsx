@@ -22,7 +22,7 @@
 
   // localStorage-backed state.
   function useLocalState(key, initial) {
-    const storageKey = 'skillloom:' + key;
+    const storageKey = 'skilldock:' + key;
     const [v, setV] = useState(() => {
       try {
         const s = localStorage.getItem(storageKey);
@@ -559,7 +559,7 @@
               style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: FONT_SANS, outline: 'none', color: p.text }} />
           </div>
           <div style={{ marginTop: 14, fontSize: 11, color: p.text3, fontFamily: MONO, padding: '8px 10px', background: 'rgba(0,0,0,0.04)', borderRadius: 6 }}>
-            Will be written to ~/.skillloom/skills/{name || '…'}/
+            Will be written to ~/.skilldock/skills/{name || '…'}/
           </div>
 
           <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>

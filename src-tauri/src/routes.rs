@@ -88,7 +88,7 @@ fn remove_route_between_roots(
 
     let link = fs::read_link(&target).map_err(|_| {
         AppError::Conflict(format!(
-            "{}{} is a symlink, but SkillLoom could not read its target",
+            "{}{} is a symlink, but SkillDock could not read its target",
             platform_path_label, skill_id
         ))
     })?;
@@ -152,7 +152,7 @@ mod tests {
                 .expect("clock should be after unix epoch")
                 .as_nanos();
             let root = env::temp_dir().join(format!(
-                "skillloom-route-test-{}-{}-{}",
+                "skilldock-route-test-{}-{}-{}",
                 std::process::id(),
                 nonce,
                 name

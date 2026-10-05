@@ -1,5 +1,5 @@
 [package]
-name = "skillloom"
+name = "skilldock"
 version = "0.1.0"
 description = "Skill manager — central + symlink routing"
 edition = "2021"
