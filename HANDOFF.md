@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中放在 `~/.skilldock/skills/`，再通过符号链接按平台路由到 Claude Code、Codex CLI、OpenClaw 等工具目录。前端使用 Vite + React + TypeScript，桌面壳和文件系统操作使用 Tauri 2 + Rust。
+SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中放在 `~/.skilldock/skills/`，再通过符号链接按平台路由到 Claude Code、Codex CLI、OpenClaw 等工具目录；Codex CLI 的平台目录固定为 `~/.codex/skills/`。前端使用 Vite + React + TypeScript，桌面壳和文件系统操作使用 Tauri 2 + Rust。
 
 正式项目路径：`~/Projects/apps/skilldock`
 
@@ -22,9 +22,13 @@ SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中�
 - 查看 Skill 详情、文件清单和真实 source path。
 - Import / Delete Skill。
 - 按平台新增或删除符号链接路由。
-- 初始化中央仓库时预览来源、冲突和迁移动作。
+- 初始化中央仓库时预览来源、冲突和迁移动作；对中央目录和中央条目执行真实目录及 canonical containment 校验。
+- 初始化预览为可迁移来源计算目录 fingerprint；执行时要求提交并复核预览 fingerprint，避免来源在预览后变化仍继续迁移。
+- 初始化实际运行会在 `~/.skilldock/backups/init-*/` 保存来源备份和 `journal.jsonl`；某项失败时按安全检查逆序回滚已完成项，并在结果中标记 `rolled-back`。
 - 文件监听后自动刷新，手动 Refresh 作为兜底。
 - AI 摘要支持 Anthropic Messages 和 Chat Completions 自定义端点，并按内容 hash、provider、model、endpoint 缓存。
+
+中央目录是唯一真实来源：中央条目若为 symlink、非目录或 canonical 路径越出中央目录，扫描、路由和初始化都会拒绝处理。平台上已有的真实目录或外部 symlink 只有在初始化预览明确标记、用户选中后才会先备份再转换为中央路由；普通路由操作不会覆盖这些冲突项。
 
 ## 已知限制
 

@@ -1332,10 +1332,15 @@ export default function App() {
       .map(([key]) => key);
     if (selectedKeys.length === 0) return;
 
+    const expectedFingerprints: Record<string, string> = {};
+    initPreview?.items.forEach((item) => {
+      if (selectedKeys.includes(item.key)) expectedFingerprints[item.key] = item.fingerprint;
+    });
+
     setInitRunPending(true);
     setInitResult(null);
     try {
-      const result = await api.runRepositoryInit(selectedKeys);
+      const result = await api.runRepositoryInit(selectedKeys, expectedFingerprints);
       setInitResult(result);
       await refreshSkills();
       setDetails({});

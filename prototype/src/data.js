@@ -5,7 +5,7 @@
     // visible
     { id: 'central',   name: 'Central Skills', short: 'Central', path: '~/.skilldock/skills/',       group: 'Core',    visible: true,  isHub: true },
     { id: 'claude',    name: 'Claude Code',    short: 'Claude',  path: '~/.claude/skills/',          group: 'Coding',  visible: true },
-    { id: 'codex',     name: 'Codex CLI',      short: 'Codex',   path: '~/.agents/skills/',          group: 'Coding',  visible: true },
+    { id: 'codex',     name: 'Codex CLI',      short: 'Codex',   path: '~/.codex/skills/',           group: 'Coding',  visible: true },
     { id: 'openclaw',  name: 'OpenClaw 开爪',   short: 'OpenClaw', path: '~/.openclaw/skills/',        group: 'Lobster', visible: true },
     // hidden by default — toggleable in Settings
     { id: 'cursor',    name: 'Cursor',         short: 'Cursor',  path: '~/.cursor/skills/',          group: 'Coding',  visible: false },

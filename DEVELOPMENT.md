@@ -9,11 +9,13 @@
 SkillDock 是一个**集中式 Skill 管理器**：
 
 - 所有 skill 真实存放在 **中央目录** `~/.skilldock/skills/`
-  （**注意**：刻意避开 `~/.agents/skills/`——那是 Codex CLI 自己的目录，作为中央仓库会污染 Codex 的真实文件，而且 Codex 的路由 symlink 会指回自己，形成循环）
-- 各 AI 工具（Claude Code、Codex CLI、OpenClaw 等）的 skill 目录里只放**符号链接**，指向中央目录里的真实条目
+  （**注意**：刻意避开 `~/.codex/skills/`——那是 Codex CLI 自己的目录，作为中央仓库会污染 Codex 的真实文件，而且 Codex 的路由 symlink 会指回自己，形成循环）
+- 各 AI 工具（Claude Code、Codex CLI、OpenClaw 等）的 skill 目录里只放**符号链接**，指向中央目录里的真实条目；Codex CLI 的平台目录固定为 `~/.codex/skills/`
 - 用户在 SkillDock 里通过开关勾选「这个 skill 路由到哪些平台」，本质就是新建 / 删除对应的 symlink
 - 每个 skill 提供一段 AI 自动生成的摘要，帮助用户快速理解作用
 - 当前阶段聚焦 macOS，后续再扩展到其他平台
+
+中央目录是唯一真实来源。中央下的 skill 必须是位于 `~/.skilldock/skills/` 内的真实目录；中央条目若为 symlink、非目录或 canonical 路径越界，扫描、路由和初始化都会拒绝处理。平台目录上的真实目录或外部 symlink 不会被普通路由操作覆盖，只有初始化预览明确选中的可迁移项才会先备份再转换为中央路由。
 
 ---
 
@@ -31,6 +33,7 @@ skilldock/
 - 前端已经迁移到 Vite + React 18 + TypeScript。
 - 后端已经实现真实文件系统扫描、SKILL.md metadata 解析、symlink 路由、导入、删除、详情读取、配置持久化、文件监听、会话内 API key 请求和 AI 摘要缓存。
 - 路由和删除路径已经做 skill id 校验、canonical path containment、真实目录拒删、冲突 symlink 保护。
+- 初始化中央仓库已经支持来源 fingerprint 校验、独立备份目录、JSONL 事务 journal 和失败后的逆序回滚；Codex 路由扫描使用 `~/.codex/skills/`。
 - 前端已经有非阻塞 notice、pending 状态、手动 Refresh、`skills-changed` 自动刷新、API key 设置入口和 AI Summary 状态。
 - macOS `.app` + `.dmg` bundle 已开启，可跑本地 ad-hoc signed release build。
 
@@ -171,7 +174,7 @@ export interface Platform {
 }
 ```
 
-平台定义是**静态配置**，硬编码在 Rust 端（`platforms.rs`），前端通过 `list_platforms` 命令拿到。
+平台定义是**静态配置**，硬编码在 Rust 端（`platforms.rs`），前端通过 `list_platforms` 命令拿到。`central` 使用 `~/.skilldock/skills/` 且标记为 hub；Codex CLI 使用 `~/.codex/skills/`，是普通路由平台，不能被当作中央目录。
 
 ### 5.3 App 偏好（持久化在磁盘）
 
@@ -234,11 +237,37 @@ remove_route(skill_id: String, platform_id: String) -> Result<()>
 
 **安全检查（必须）：**
 
-- 创建 symlink 前确保目标在 `~/.skilldock/skills/` 下，防止做出指向系统目录的链接
+- 创建 symlink 前必须确认中央条目是位于 `~/.skilldock/skills/` 内的真实目录；`symlink_metadata` 发现中央条目本身是 symlink 时直接拒绝，即使它最终指向中央目录内部
+- 对中央条目做 canonical path containment 校验，防止做出指向中央目录外部的链接
 - 删除前必须先 `symlink_metadata` 判断是 symlink，**绝不能 rm 真目录**
+- 删除前还要确认 symlink 指向当前中央条目；指向其他位置的链接视为冲突
 - 平台目标目录不存在时**自动创建**（用户可能从没装过那个工具）
 
-### 6.3 Skill 增删
+### 6.3 初始化中央仓库
+
+初始化分成“预览 → 选择 → 执行”三步。预览扫描所有已知非 hub 平台目录（包括 `~/.codex/skills/`），为每个有效来源生成 `InitPreviewItem`：
+
+- `fingerprint` 是稳定的目录 SHA-256，按相对路径排序并包含目录、文件、symlink 类型标记；文件内容和长度、symlink 目标也参与计算。外部 symlink 会对其解析后的 skill 目录内容计算 fingerprint，但源链接本身仍会先备份。
+- 中央不存在同名 skill 时，首个来源标记为 `MigrateToCentral`，相同内容的其他来源标记为 `LinkPlannedCentral`；中央已有相同内容时可标记 `LinkExistingCentral`；内容冲突或中央目标不安全时不会默认选中。
+- 中央目标必须是安全的真实目录。中央目标若是 symlink、非目录或 canonical 路径越出中央根目录，预览会标记冲突并阻止迁移。
+
+IPC 接口为：
+
+```rust
+preview_repository_init() -> Result<InitPreview>
+run_repository_init(
+  selected_keys: Vec<String>,
+  expected_fingerprints: BTreeMap<String, String>,
+) -> Result<InitResult>
+```
+
+执行时会重新生成预览，要求每个选中项都有与预览一致的 fingerprint；每项真正开始迁移前还会复核来源类型和 fingerprint。这样可以阻止用户在预览后编辑来源目录仍继续迁移，前端必须在请求中传回预览结果里的 `expectedFingerprints`。
+
+有实际可运行项时，SkillDock 在 `~/.skilldock/backups/init-<timestamp>-<nonce>-<attempt>/` 创建独立备份目录和 `journal.jsonl`。journal 每行是一个 JSON 事件，记录运行、复制、备份、建路由、完成和回滚阶段，并在追加后同步到磁盘。真实目录或 symlink 先移动到按平台和 skill id 划分的备份路径，再创建指向中央的 route。
+
+若某一项失败，已完成项按逆序回滚：先确认平台源仍是指向中央的 symlink，再恢复备份；对迁移到中央的项，还要确认中央副本 fingerprint 未被外部修改后才删除。恢复无法通过这些安全检查时保留现状、写入 `rollback_failed` 事件并返回错误，绝不覆盖外部改动。成功完成的项在结果中为 `completed`；发生失败并成功恢复的先前项为 `rolled-back`。
+
+### 6.4 Skill 增删
 
 ```rust
 import_skill(name: String, description: String) -> Result<Skill>
@@ -249,7 +278,7 @@ delete_skill(id: String) -> Result<()>
 //   3. 删除 AI 摘要缓存行
 ```
 
-### 6.4 AI 摘要
+### 6.5 AI 摘要
 
 ```rust
 generate_summary(skill_id: String, force: bool) -> Result<String>
@@ -260,7 +289,7 @@ test_ai_config() -> Result<AiTestResult>
 // provider=chat 时发 Chat Completions 请求，使用 api-key
 ```
 
-### 6.5 文件监听（推事件给前端）
+### 6.6 文件监听（推事件给前端）
 
 ```rust
 // 不是 command，是后台任务
@@ -270,7 +299,7 @@ test_ai_config() -> Result<AiTestResult>
 // 变化时 emit "skills-changed" 事件，前端 listen 后 invalidate React Query
 ```
 
-### 6.6 配置
+### 6.7 配置
 
 ```rust
 get_config() -> Config
@@ -501,6 +530,7 @@ Tauri 内置 updater：
 - [x] `add_route` / `remove_route` 实现 + 单元测试
 - [x] 前端 Toggle 接上 Tauri IPC
 - [x] 错误处理（真实目录冲突、指向别处的 symlink、hub 路由拒绝）
+- [x] 初始化中央仓库迁移预览、来源 fingerprint、备份 journal 和失败回滚
 - [x] **里程碑**：勾选开关会创建/删除平台 symlink
 
 ### Phase 3 — Skill 增删（1 天）
@@ -596,6 +626,9 @@ pnpm tauri dev
 |---|---|
 | 目标已存在且不是 symlink（用户手动建了真目录） | 提示用户：「Claude 已有同名真实 skill 目录，请手动处理」，绝不覆盖 |
 | 目标已存在且是 symlink 但指向别处 | 同上，提示冲突 |
+| 中央条目是 symlink、非目录或 canonical 路径越出中央根目录 | 扫描、路由和初始化均阻止处理；中央仓库不接受间接真实来源 |
+| 初始化预览后来源 fingerprint 发生变化 | 执行前拒绝并要求重新预览；不会按旧预览继续迁移 |
+| 初始化某项失败 | 保留备份和 JSONL journal，已完成项按逆序回滚；外部修改导致的回滚不安全时记录 `rollback_failed`，不覆盖外部内容 |
 | 中央 skill 被外部删除，平台还留着断链 | 监听器检测到时自动清理断链 |
 | 跨 filesystem（中央在 NFS、平台在本地） | symlink 不受影响，但 watcher 可能漏事件，UI 加手动刷新按钮兜底 |
 
@@ -611,6 +644,8 @@ pnpm tauri dev
 - AI 摘要必须懒生成 + 缓存，不能在 scan 时同步触发
 
 ### 10.4 数据迁移
+
+初始化中央仓库使用独立的 `~/.skilldock/backups/init-*` 目录，不修改平台中未选中的冲突项。每次实际运行都创建 `journal.jsonl`；备份目录可用于人工核对或恢复。
 
 未来如果改了 SKILL.md schema 或 config.json 字段，加 `schemaVersion`，启动时跑迁移函数。
 

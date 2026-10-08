@@ -1,6 +1,6 @@
 # SkillDock
 
-集中式 Skill 管理器 —— 所有 skill 真实存放在 `~/.skilldock/skills/`，各 AI 工具的目录里只放符号链接。
+集中式 Skill 管理器 —— 所有 skill 真实存放在 `~/.skilldock/skills/`，各 AI 工具的目录里只放符号链接。Codex CLI 的路由目录是 `~/.codex/skills/`。
 
 **当前 MVP 功能：**
 
@@ -9,7 +9,8 @@
 - 解析 `SKILL.md` frontmatter：`name` / `description` / `version` / `tags`
 - 详情接口返回 `SKILL.md`，详情页显示真实 source path 和文件列表
 - 按平台开关路由（创建/删除 symlink）
-- 初始化中央仓库：扫描所有已知平台 skill 目录，预览来源/冲突后把真实目录备份迁移到 central 并替换为 symlink
+- 初始化中央仓库：扫描所有已知平台 skill 目录，预览来源/冲突和内容 fingerprint 后，把真实目录备份迁移到 central 并替换为 symlink
+- 初始化迁移写入 `~/.skilldock/backups/init-*/journal.jsonl`；执行前复核 fingerprint，失败时回滚已完成的迁移项
 - Import 新 skill（写入 SKILL.md 模板）
 - Delete skill（清理所有 symlink + 真目录）
 - 文件监听：central / 可见平台目录变化后自动刷新，保留手动 Refresh 兜底
@@ -29,6 +30,13 @@
 - macOS `.app` + `.dmg` release 流程已开启；本机没有 Developer ID 证书时会使用 ad-hoc 签名，正式分发前仍需要 Apple notarization。
 - watcher 只在启动时读取一次当前隐藏平台配置；运行中修改平台可见性后，仍可用手动 Refresh 兜底。
 - 还没有 GitHub Actions CI；当前 release 流程先在本机执行。
+
+## 路径边界与初始化安全
+
+- `~/.skilldock/skills/` 是唯一真实仓库；Claude Code、Codex CLI（`~/.codex/skills/`）、OpenClaw 等平台目录只保存指向中央目录的 symlink。
+- 中央 skill 必须是位于中央目录内的真实目录。中央条目若是 symlink、非目录或 canonical 路径越出中央目录，扫描、路由和初始化都会拒绝处理；平台上的真实目录或指向其他位置的 symlink 只有在初始化预览明确选中后才会先备份再迁移，普通路由操作不会覆盖。
+- 初始化预览会为每个来源目录计算内容 fingerprint。点击执行后，SkillDock 要求前端提交预览时的 fingerprint，并在迁移每项前再次校验；内容在预览后变化时必须重新扫描。
+- 每次有实际迁移的初始化都会创建独立备份目录和 JSONL journal。某一项失败时，已完成项会按 journal 记录逆序回滚；无法安全确认目标未被外部修改时会记录回滚错误并避免覆盖外部改动。
 
 ## 首次启动
 
@@ -84,6 +92,7 @@ skilldock/
 ├── src-tauri/          # Rust 后端
 │   └── src/
 │       ├── platforms.rs # 平台清单（central + claude + codex + ...）
+│       ├── repository_init.rs # 初始化预览、fingerprint、备份、journal 和回滚
 │       ├── skills.rs   # scan / import / delete
 │       ├── routes.rs   # add_route / remove_route（symlink 管理）
 │       ├── config.rs   # 用户偏好持久化

@@ -15,25 +15,115 @@ pub struct Platform {
 
 fn pl(id: &str, name: &str, short: &str, path: &str, group: &str, is_hub: bool) -> Platform {
     Platform {
-        id: id.into(), name: name.into(), short: short.into(),
-        path: path.into(), group: group.into(), is_hub,
+        id: id.into(),
+        name: name.into(),
+        short: short.into(),
+        path: path.into(),
+        group: group.into(),
+        is_hub,
     }
 }
 
-pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| vec![
-    pl("central",   "Central Skills",      "Central",   "~/.skilldock/skills/",                       "Core",    true),
-    pl("claude",    "Claude Code",         "Claude",    "~/.claude/skills/",                          "Coding",  false),
-    pl("codex",     "Codex CLI",           "Codex",     "~/.agents/skills/",                          "Coding",  false),
-    pl("openclaw",  "OpenClaw 开爪",       "OpenClaw",  "~/.openclaw/skills/",                        "Lobster", false),
-    pl("cursor",    "Cursor",              "Cursor",    "~/.cursor/skills/",                          "Coding",  false),
-    pl("gemini",    "Gemini CLI",          "Gemini",    "~/.gemini/skills/",                          "Coding",  false),
-    pl("copilot",   "Copilot",             "Copilot",   "~/.copilot/skills/",                         "Coding",  false),
-    pl("windsurf",  "Windsurf",            "Windsurf",  "~/.windsurf/skills/",                        "Coding",  false),
-    pl("aider",     "Aider",               "Aider",     "~/.aider/skills/",                           "Coding",  false),
-    pl("qclaw",     "QClaw 千爪",          "QClaw",     "~/.qclaw/skills/",                           "Lobster", false),
-    pl("easyclaw",  "EasyClaw 简爪",       "EasyClaw",  "~/.easyclaw/skills/",                        "Lobster", false),
-    pl("workbuddy", "WorkBuddy 打工搭子",  "WorkBuddy", "~/.workbuddy/skills-marketplace/skills/",    "Lobster", false),
-]);
+pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| {
+    vec![
+        pl(
+            "central",
+            "Central Skills",
+            "Central",
+            "~/.skilldock/skills/",
+            "Core",
+            true,
+        ),
+        pl(
+            "claude",
+            "Claude Code",
+            "Claude",
+            "~/.claude/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "codex",
+            "Codex CLI",
+            "Codex",
+            "~/.codex/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "openclaw",
+            "OpenClaw 开爪",
+            "OpenClaw",
+            "~/.openclaw/skills/",
+            "Lobster",
+            false,
+        ),
+        pl(
+            "cursor",
+            "Cursor",
+            "Cursor",
+            "~/.cursor/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "gemini",
+            "Gemini CLI",
+            "Gemini",
+            "~/.gemini/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "copilot",
+            "Copilot",
+            "Copilot",
+            "~/.copilot/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "windsurf",
+            "Windsurf",
+            "Windsurf",
+            "~/.windsurf/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "aider",
+            "Aider",
+            "Aider",
+            "~/.aider/skills/",
+            "Coding",
+            false,
+        ),
+        pl(
+            "qclaw",
+            "QClaw 千爪",
+            "QClaw",
+            "~/.qclaw/skills/",
+            "Lobster",
+            false,
+        ),
+        pl(
+            "easyclaw",
+            "EasyClaw 简爪",
+            "EasyClaw",
+            "~/.easyclaw/skills/",
+            "Lobster",
+            false,
+        ),
+        pl(
+            "workbuddy",
+            "WorkBuddy 打工搭子",
+            "WorkBuddy",
+            "~/.workbuddy/skills-marketplace/skills/",
+            "Lobster",
+            false,
+        ),
+    ]
+});
 
 pub fn expand_path(path_with_tilde: &str) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
@@ -61,4 +151,17 @@ pub fn central_dir() -> Option<PathBuf> {
 #[tauri::command]
 pub fn list_platforms() -> Vec<Platform> {
     PLATFORMS.clone()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::platform_by_id;
+
+    #[test]
+    fn codex_uses_current_skill_directory() {
+        assert_eq!(
+            platform_by_id("codex").expect("codex platform").path,
+            "~/.codex/skills/"
+        );
+    }
 }

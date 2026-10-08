@@ -80,6 +80,7 @@ export interface InitPreviewItem {
   sourcePath: string;
   contentPath: string;
   sourceIsSymlink: boolean;
+  fingerprint: string;
   targetId: string;
   targetPath: string;
   action: InitAction;

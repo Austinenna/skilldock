@@ -8,8 +8,24 @@ use std::path::{Path, PathBuf};
 fn existing_skill_paths_in_root(central_root: &Path, skill_id: &str) -> Result<(PathBuf, PathBuf)> {
     validate_skill_id(skill_id)?;
     let source = central_root.join(skill_id);
-    if !source.exists() {
-        return Err(AppError::SkillNotFound(skill_id.to_string()));
+    let meta = fs::symlink_metadata(&source).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            AppError::SkillNotFound(skill_id.to_string())
+        } else {
+            AppError::Io(error)
+        }
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(AppError::Conflict(format!(
+            "central skill '{}' must be a real directory, not a symlink",
+            skill_id
+        )));
+    }
+    if !meta.is_dir() {
+        return Err(AppError::Conflict(format!(
+            "central skill '{}' is not a directory",
+            skill_id
+        )));
     }
 
     let canonical_root = central_root.canonicalize()?;
@@ -236,6 +252,23 @@ mod tests {
             fs::read_link(fixture.target()).expect("read conflicting link"),
             other
         );
+    }
+
+    #[test]
+    fn add_route_rejects_central_symlink_even_when_target_is_inside_central() {
+        let fixture = RouteFixture::new("central-symlink");
+        let real_source = fixture.root.join("real-source");
+        fs::create_dir_all(&real_source).expect("create real source");
+        fs::remove_dir_all(fixture.source()).expect("remove central directory");
+        symlink(&real_source, fixture.source()).expect("create central symlink");
+
+        assert_conflict(add_route_between_roots(
+            SKILL_ID,
+            &fixture.central,
+            &fixture.platform,
+            "platform/",
+        ));
+        assert!(!fixture.target().exists());
     }
 
     #[test]

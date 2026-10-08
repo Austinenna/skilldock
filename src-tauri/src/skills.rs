@@ -100,8 +100,24 @@ fn canonical_central_dir() -> Result<PathBuf> {
 
 pub fn existing_central_skill_paths(id: &str) -> Result<(PathBuf, PathBuf)> {
     let path = central_skill_path(id)?;
-    if !path.exists() {
-        return Err(AppError::SkillNotFound(id.to_string()));
+    let meta = fs::symlink_metadata(&path).map_err(|error| {
+        if error.kind() == std::io::ErrorKind::NotFound {
+            AppError::SkillNotFound(id.to_string())
+        } else {
+            AppError::Io(error)
+        }
+    })?;
+    if meta.file_type().is_symlink() {
+        return Err(AppError::Conflict(format!(
+            "central skill '{}' must be a real directory, not a symlink",
+            id
+        )));
+    }
+    if !meta.is_dir() {
+        return Err(AppError::Conflict(format!(
+            "central skill '{}' is not a directory",
+            id
+        )));
     }
 
     let canonical_central = canonical_central_dir()?;
@@ -428,17 +444,24 @@ pub fn scan_skills() -> Result<Vec<Skill>> {
     let central = central_dir().ok_or(AppError::NoHomeDir)?;
     let mut skills: Vec<Skill> = Vec::new();
 
+    let canonical_central = central.canonicalize()?;
     for entry in fs::read_dir(&central)? {
         let entry = entry?;
-        let meta = match entry.metadata() {
+        let meta = match fs::symlink_metadata(entry.path()) {
             Ok(m) => m,
             Err(_) => continue,
         };
         let name = entry.file_name().to_string_lossy().to_string();
-        if !meta.is_dir() || validate_skill_id(&name).is_err() {
+        if !meta.is_dir() || meta.file_type().is_symlink() || validate_skill_id(&name).is_err() {
             continue;
         }
         let path = entry.path();
+        let Ok(canonical_path) = path.canonicalize() else {
+            continue;
+        };
+        if !canonical_path.starts_with(&canonical_central) {
+            continue;
+        }
         skills.push(build_skill(&name, &path, &meta));
     }
 

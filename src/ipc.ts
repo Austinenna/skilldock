@@ -12,8 +12,8 @@ import type {
 export const api = {
   listPlatforms: () => invoke<Platform[]>('list_platforms'),
   previewRepositoryInit: () => invoke<InitPreview>('preview_repository_init'),
-  runRepositoryInit: (selectedKeys: string[]) =>
-    invoke<InitResult>('run_repository_init', { selectedKeys }),
+  runRepositoryInit: (selectedKeys: string[], expectedFingerprints: Record<string, string>) =>
+    invoke<InitResult>('run_repository_init', { selectedKeys, expectedFingerprints }),
   scanSkills: () => invoke<Skill[]>('scan_skills'),
   getSkillDetail: (id: string) => invoke<SkillDetail>('get_skill_detail', { id }),
   addRoute: (skillId: string, platformId: string) =>
