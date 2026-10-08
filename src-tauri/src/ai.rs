@@ -438,7 +438,7 @@ fn request_anthropic_prompt(
         &[
             ("content-type", "application/json".into()),
             ("anthropic-version", ANTHROPIC_VERSION.into()),
-            ("x-api-key", api_key.into()),
+            ("authorization", format!("Bearer {api_key}")),
         ],
         &body,
     )?;
@@ -471,7 +471,7 @@ fn request_chat_prompt(
         endpoint,
         &[
             ("content-type", "application/json".into()),
-            ("api-key", api_key.into()),
+            ("authorization", format!("Bearer {api_key}")),
         ],
         &body,
     )?;

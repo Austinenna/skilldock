@@ -285,8 +285,7 @@ generate_summary(skill_id: String, force: bool) -> Result<String>
 // force=false 时优先读当前 provider/model/endpoint 对应缓存
 test_ai_config() -> Result<AiTestResult>
 // 使用当前 provider/endpoint/model/API key 发送一条短测试请求
-// provider=anthropic 时发 Anthropic Messages 请求，使用 x-api-key
-// provider=chat 时发 Chat Completions 请求，使用 api-key
+// provider=anthropic/chat 时都使用 Authorization: Bearer <project credential>
 ```
 
 ### 6.6 文件监听（推事件给前端）

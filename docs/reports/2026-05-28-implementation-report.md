@@ -315,8 +315,7 @@
 - 在配置中新增 `aiProvider`、`aiEndpoint` 和 `aiModel`，API key 仍只存 macOS Keychain。
 - Settings 的 AI 区域新增 provider 协议选择、endpoint 输入框和 model 输入框。
 - 支持两种 provider 协议：
-  - `anthropic`：发送 Anthropic Messages 请求，使用 `x-api-key` header。
-  - `chat`：发送 Chat Completions 请求，使用 `api-key` header。
+  - `anthropic` / `chat`：均使用 `Authorization: Bearer <project credential>` 发送网关项目凭证。
 - 默认预填 Anthropic-compatible 的 MiniMax endpoint/model，同时可切换到 Chat Completions 示例 endpoint/model。
 - 后端根据 provider 生成不同请求体，并分别解析 `content[].text` 或 `choices[].message.content`。
 - 摘要缓存读取时增加 provider/model 维度，切换端点或模型后不会误用旧摘要。

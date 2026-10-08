@@ -788,7 +788,7 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTes
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: apiKeyConfigured ? p.hub : p.text3, display: 'inline-block' }} />
-                  {apiKeyConfigured ? 'Active for this app session only. It is not saved.' : (config.aiProvider === 'chat' ? 'No key active. Will be sent as api-key for this session.' : 'No key active. Will be sent as x-api-key for this session.')}
+                  {apiKeyConfigured ? 'Active for this app session only. It is not saved.' : 'No key active. Will be sent as Authorization: Bearer for this session.'}
                 </div>
               </div>
               <input value={apiKey} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
