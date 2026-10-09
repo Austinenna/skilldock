@@ -52,7 +52,7 @@ pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| {
         ),
         pl(
             "openclaw",
-            "OpenClaw 开爪",
+            "OpenClaw",
             "OpenClaw",
             "~/.openclaw/skills/",
             "Lobster",
@@ -100,7 +100,7 @@ pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| {
         ),
         pl(
             "qclaw",
-            "QClaw 千爪",
+            "QClaw",
             "QClaw",
             "~/.qclaw/skills/",
             "Lobster",
@@ -108,7 +108,7 @@ pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| {
         ),
         pl(
             "easyclaw",
-            "EasyClaw 简爪",
+            "EasyClaw",
             "EasyClaw",
             "~/.easyclaw/skills/",
             "Lobster",
@@ -116,7 +116,7 @@ pub static PLATFORMS: Lazy<Vec<Platform>> = Lazy::new(|| {
         ),
         pl(
             "workbuddy",
-            "WorkBuddy 打工搭子",
+            "WorkBuddy",
             "WorkBuddy",
             "~/.workbuddy/skills-marketplace/skills/",
             "Lobster",
