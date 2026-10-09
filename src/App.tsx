@@ -395,12 +395,12 @@ function Toggle({ on, disabled, blocked, onClick, p }: {
   );
 }
 
-function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoading, summaryError, onRegenerateSummary, toggleRoute, onDelete, onNotice, routePending, deletePending, visiblePlatforms, p, paletteKey }: {
+function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoading, summaryError, onRegenerateSummary, toggleRoute, onDelete, onNotice, routePending, deletePending, visiblePlatforms, p, paletteKey, onClose }: {
   skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
   summary?: string; summaryLoading: boolean; summaryError: string | null; onRegenerateSummary: () => void;
   toggleRoute: (pid: string) => void; onDelete: () => void; onNotice: (message: string, tone?: NoticeTone) => void;
   routePending: string | null; deletePending: boolean;
-  visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey;
+  visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey; onClose?: () => void;
 }) {
   const [descOpen, setDescOpen] = useState(true);
   const [filesOpen, setFilesOpen] = useState(false);
@@ -436,17 +436,27 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
               {skill.updated && (<><span>·</span><span>updated {skill.updated}</span></>)}
             </div>
           </div>
-          <button disabled={deletePending} onClick={() => {
-            if (confirmDel) { onDelete(); setConfirmDel(false); }
-            else setConfirmDel(true);
-          }}
-            style={{
-              border: '1px solid ' + (confirmDel ? p.danger : p.line),
-              background: confirmDel ? p.danger : p.panel,
-              color: confirmDel ? '#fff' : p.danger, fontSize: 12, fontFamily: FONT_SANS,
-              borderRadius: 6, padding: '5px 10px', cursor: deletePending ? 'not-allowed' : 'pointer',
-              transition: 'background-color 0.12s, color 0.12s', opacity: deletePending ? 0.6 : 1,
-            }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete')}</button>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            {onClose && (
+              <button type="button" onClick={onClose} aria-label="Close skill details"
+                style={{
+                  width: 28, height: 28, borderRadius: 14, border: '1px solid ' + p.line,
+                  background: p.panel, color: p.text2, fontSize: 20, lineHeight: 1,
+                  cursor: 'pointer', fontFamily: FONT_SANS,
+                }}>×</button>
+            )}
+            <button disabled={deletePending} onClick={() => {
+              if (confirmDel) { onDelete(); setConfirmDel(false); }
+              else setConfirmDel(true);
+            }}
+              style={{
+                border: '1px solid ' + (confirmDel ? p.danger : p.line),
+                background: confirmDel ? p.danger : p.panel,
+                color: confirmDel ? '#fff' : p.danger, fontSize: 12, fontFamily: FONT_SANS,
+                borderRadius: 6, padding: '5px 10px', cursor: deletePending ? 'not-allowed' : 'pointer',
+                transition: 'background-color 0.12s, color 0.12s', opacity: deletePending ? 0.6 : 1,
+              }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete')}</button>
+          </div>
         </div>
       </div>
 
@@ -1161,6 +1171,7 @@ export default function App() {
 
   const [active, setActive] = useState('central');
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [gridDetailOpen, setGridDetailOpen] = useState(false);
   const [q, setQ] = useState('');
   const [importOpen, setImportOpen] = useState(false);
   const [initOpen, setInitOpen] = useState(false);
@@ -1427,6 +1438,19 @@ export default function App() {
   const selectedSummaryLoading = selected ? summaryPendingId === selected.id : false;
   const selectedSummaryError = selected ? summaryErrors[selected.id] ?? null : null;
 
+  useEffect(() => {
+    if (config.view !== 'grid' || active === 'settings') setGridDetailOpen(false);
+  }, [active, config.view]);
+
+  useEffect(() => {
+    if (!gridDetailOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setGridDetailOpen(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [gridDetailOpen]);
+
   const loadSummary = useCallback(async (id: string, force = false) => {
     setSummaryPendingId(id);
     setSummaryErrors((current) => {
@@ -1509,7 +1533,7 @@ export default function App() {
   const deleteSelected = async () => {
     if (!selected || deletePending) return;
     setDeletePending(true);
-    try { await api.deleteSkill(selected.id); await refreshSkills(); }
+    try { await api.deleteSkill(selected.id); await refreshSkills(); setGridDetailOpen(false); }
     catch (e) { showNotice('Delete failed: ' + e); }
     finally { setDeletePending(false); }
   };
@@ -1569,10 +1593,15 @@ export default function App() {
           onInitialize={openInitRepository} initializePending={initScanPending} />
       ) : (
         <>
-          <div style={{ width: 360, borderRight: '1px solid ' + p.line, display: 'flex', flexDirection: 'column', background: p.panel, flexShrink: 0 }}>
+          <div style={{
+            width: config.view === 'grid' ? undefined : 360,
+            flex: config.view === 'grid' ? 1 : undefined,
+            borderRight: config.view === 'grid' ? 0 : '1px solid ' + p.line,
+            display: 'flex', flexDirection: 'column', background: p.panel, minWidth: 0,
+          }}>
             <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
             <ListHeader title={activeTitle + ' · ' + filtered.length} q={q} setQ={setQ}
-              view={config.view} setView={(v) => setConfig({ view: v })}
+              view={config.view} setView={(v) => { void setConfig({ view: v }); if (v !== 'grid') setGridDetailOpen(false); }}
               onImport={() => setImportOpen(true)} onRefresh={refreshSkills}
               refreshing={scanPending} importDisabled={importPending}
               p={p} density={config.density} />
@@ -1589,16 +1618,16 @@ export default function App() {
                     onClick={() => setSelectedId(s.id)} p={p} density={config.density} platforms={platforms} />
                 ))
               ) : (
-                <div style={{ padding: 12, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+                <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
                   {filtered.map((s) => (
                     <SkillCard key={s.id} skill={s} selected={selected?.id === s.id}
-                      onClick={() => setSelectedId(s.id)} p={p} platforms={platforms} />
+                      onClick={() => { setSelectedId(s.id); setGridDetailOpen(true); }} p={p} platforms={platforms} />
                   ))}
                 </div>
               )}
             </div>
           </div>
-          {selected ? (
+          {config.view !== 'grid' && selected ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
               <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
@@ -1608,15 +1637,52 @@ export default function App() {
                 routePending={routePending} deletePending={deletePending}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />
             </div>
-          ) : (
+          ) : config.view !== 'grid' ? (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: p.panel }}>
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0 }} />
               <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>
                 {skills.length === 0 ? 'Import a skill to get started.' : 'Pick a skill from the list.'}
               </div>
             </div>
-          )}
+          ) : null}
         </>
+      )}
+
+      {config.view === 'grid' && gridDetailOpen && selected && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`${selected.title} skill details`}
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) setGridDetailOpen(false);
+          }}
+          style={{
+            position: 'absolute', inset: 0, zIndex: 30,
+            display: 'grid', placeItems: 'center', padding: '44px 32px 24px',
+            background: 'rgba(20, 24, 32, 0.22)',
+            backdropFilter: 'blur(2px)',
+          }}
+        >
+          <div
+            onMouseDown={(event) => event.stopPropagation()}
+            style={{
+              width: 'min(820px, calc(100vw - 64px))',
+              height: 'min(860px, calc(100vh - 72px))',
+              maxHeight: 'calc(100vh - 72px)',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden',
+              background: p.panel, border: '1px solid ' + p.line,
+              borderRadius: 16, boxShadow: '0 24px 80px rgba(0,0,0,0.28)',
+            }}
+          >
+            <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
+              summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
+              onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary && selectedSummary !== selected.tagline))}
+              toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
+              routePending={routePending} deletePending={deletePending}
+              visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette}
+              onClose={() => setGridDetailOpen(false)} />
+          </div>
+        </div>
       )}
 
       <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onAdd={addSkill} pending={importPending} p={p} />
