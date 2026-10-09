@@ -286,7 +286,7 @@ fn summary_prompt(skill_id: &str, skill_md: &str) -> String {
          - 用简洁的两句话回答。\n\
          - 说明技能的用途以及适合在什么情况下使用。\n\
          - 只有在 SKILL.md 明确写出时才提及重要前置条件。\n\
-         - 不要使用 Markdown 列表，不要输出英文。\n\n\
+         - 不要使用 Markdown 列表；用中文回答，必要的英文专有名词、命令名和标识符可以保留。\n\n\
          SKILL.md 内容：\n{skill_md}"
     )
 }
