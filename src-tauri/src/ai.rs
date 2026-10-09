@@ -537,8 +537,7 @@ fn request_test_message(api_key: &str, config: &AiRequestConfig) -> Result<Strin
     }
 }
 
-#[tauri::command]
-pub fn test_ai_config(app: tauri::AppHandle, api_key: String) -> Result<AiTestResult> {
+fn test_ai_config_blocking(app: tauri::AppHandle, api_key: String) -> Result<AiTestResult> {
     let config = config::read_config(&app)?;
     let ai_config = resolve_ai_config(&config);
     let Some(api_key) = clean_api_key(Some(api_key)) else {
@@ -555,7 +554,13 @@ pub fn test_ai_config(app: tauri::AppHandle, api_key: String) -> Result<AiTestRe
 }
 
 #[tauri::command]
-pub fn generate_summary(
+pub async fn test_ai_config(app: tauri::AppHandle, api_key: String) -> Result<AiTestResult> {
+    tauri::async_runtime::spawn_blocking(move || test_ai_config_blocking(app, api_key))
+        .await
+        .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
+}
+
+fn generate_summary_blocking(
     app: tauri::AppHandle,
     skill_id: String,
     force: bool,
@@ -585,6 +590,20 @@ pub fn generate_summary(
     let summary = request_summary(&api_key, &ai_config, &skill_id, &detail.skill_md)?;
     store_summary(&conn, &skill_id, &hash, &summary, &ai_config.model_label)?;
     Ok(summary)
+}
+
+#[tauri::command]
+pub async fn generate_summary(
+    app: tauri::AppHandle,
+    skill_id: String,
+    force: bool,
+    api_key: Option<String>,
+) -> Result<String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        generate_summary_blocking(app, skill_id, force, api_key)
+    })
+    .await
+    .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
 }
 
 #[cfg(test)]
