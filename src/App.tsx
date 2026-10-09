@@ -596,10 +596,10 @@ function Segmented<T extends string>({ value, options, onChange, p }: {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────
-function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTestPending, aiTest, onUseApiKey, onClearApiKey, onTestAi, onInitialize, initializePending }: {
+function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTestPending, aiTest, onUseApiKey, onClearApiKey, onTestAi, onRegenerateAllSummaries, regenerateAllPending, onInitialize, initializePending }: {
   p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => Promise<void>;
   apiKeyConfigured: boolean; aiTestPending: boolean; aiTest: AiTestState;
-  onUseApiKey: (key: string) => boolean; onClearApiKey: () => void; onTestAi: () => Promise<void>;
+  onUseApiKey: (key: string) => boolean; onClearApiKey: () => void; onTestAi: () => Promise<void>; onRegenerateAllSummaries: () => Promise<void>; regenerateAllPending: boolean;
   onInitialize: () => void; initializePending: boolean;
 }) {
   const [apiKey, setApiKey] = useState('');
@@ -733,6 +733,17 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTes
               </div>
               <Segmented value={config.view} onChange={(v) => setConfig({ view: v })} p={p}
                 options={[{ value: 'list', label: 'List' }, { value: 'grid', label: 'Grid' }]} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Regenerate all summaries</div>
+                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Replace every local or previous summary with a fresh AI response.</div>
+              </div>
+              <button onClick={onRegenerateAllSummaries} disabled={regenerateAllPending || !apiKeyConfigured} style={{
+                border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
+                fontSize: 12, cursor: regenerateAllPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: regenerateAllPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>{regenerateAllPending ? 'Generating…' : 'Regenerate all'}</button>
             </div>
           </div>
         </div>
@@ -1129,6 +1140,7 @@ export default function App() {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, string>>({});
   const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
+  const [regenerateAllPending, setRegenerateAllPending] = useState(false);
   const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({});
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
@@ -1240,8 +1252,6 @@ export default function App() {
     const trimmed = key.trim();
     if (!trimmed) return false;
     setSessionApiKey(trimmed);
-    setSummaries({});
-    setSummaryErrors({});
     setAiTest(null);
     showNotice('API key is active for this session only.', 'info');
     return true;
@@ -1406,12 +1416,16 @@ export default function App() {
     }
   }, [sessionApiKey, showNotice]);
 
-  // A summary generated before an API key was configured is only the local
-  // tagline. Retry the selected skill immediately after the key is activated.
-  useEffect(() => {
-    if (!sessionApiKey.trim() || !selected?.id) return;
-    loadSummary(selected.id, true);
-  }, [sessionApiKey]);
+  const regenerateAllSummaries = useCallback(async () => {
+    if (regenerateAllPending || !sessionApiKey.trim()) return;
+    setRegenerateAllPending(true);
+    try {
+      for (const skill of skills) await loadSummary(skill.id, true);
+      showNotice('All summaries regenerated.', 'info');
+    } finally {
+      setRegenerateAllPending(false);
+    }
+  }, [regenerateAllPending, sessionApiKey, skills, loadSummary, showNotice]);
 
   useEffect(() => {
     const id = selected?.id;
@@ -1526,6 +1540,7 @@ export default function App() {
         <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig}
           apiKeyConfigured={apiKeyConfigured} aiTestPending={aiTestPending} aiTest={aiTest}
           onUseApiKey={useApiKeyForSession} onClearApiKey={clearApiKey} onTestAi={testAiConfig}
+          onRegenerateAllSummaries={regenerateAllSummaries} regenerateAllPending={regenerateAllPending}
           onInitialize={openInitRepository} initializePending={initScanPending} />
       ) : (
         <>
