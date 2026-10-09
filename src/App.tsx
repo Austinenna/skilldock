@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
@@ -403,13 +403,27 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
   visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey; onClose?: () => void;
 }) {
   const [descOpen, setDescOpen] = useState(true);
-  const [filesOpen, setFilesOpen] = useState(false);
+  const [filesOpen, setFilesOpen] = useState(true);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
+  const actionsRef = useRef<HTMLDivElement>(null);
   const display = paletteKey === 'warm' ? FONT_DISPLAY_WARM : FONT_SANS;
   const titleSize = paletteKey === 'warm' ? 28 : 19;
   const titleWeight = paletteKey === 'warm' ? 400 : 600;
 
-  useEffect(() => { setConfirmDel(false); }, [skill.id]);
+  useEffect(() => { setConfirmDel(false); setActionsOpen(false); }, [skill.id]);
+
+  useEffect(() => {
+    if (!actionsOpen) {
+      setConfirmDel(false);
+      return;
+    }
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!actionsRef.current?.contains(event.target as Node)) setActionsOpen(false);
+    };
+    document.addEventListener('pointerdown', handlePointerDown);
+    return () => document.removeEventListener('pointerdown', handlePointerDown);
+  }, [actionsOpen]);
 
   const fileBadge = detail ? String(detail.files.length) : (detailLoading ? 'loading' : String(skill.files));
   const summaryBoxIsError = Boolean(summaryError);
@@ -436,14 +450,41 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
               {skill.updated && (<><span>·</span><span>updated {skill.updated}</span></>)}
             </div>
           </div>
-          {onClose && (
-            <button type="button" onClick={onClose} aria-label="Close skill details"
-              style={{
-                width: 28, height: 28, borderRadius: 14, border: '1px solid ' + p.line,
-                background: p.panel, color: p.text2, fontSize: 20, lineHeight: 1,
-                cursor: 'pointer', fontFamily: FONT_SANS, flexShrink: 0,
-              }}>×</button>
-          )}
+          <div ref={actionsRef} style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+            <div style={{ position: 'relative' }}>
+              <button type="button" onClick={() => setActionsOpen((open) => !open)} aria-label="More skill actions" aria-expanded={actionsOpen}
+                style={{
+                  width: 30, height: 28, borderRadius: 7, border: '1px solid ' + p.line,
+                  background: actionsOpen ? 'rgba(0,0,0,0.05)' : p.panel, color: p.text2,
+                  fontSize: 16, lineHeight: 1, letterSpacing: 1, cursor: 'pointer', fontFamily: FONT_SANS,
+                }}>•••</button>
+              {actionsOpen && (
+                <div style={{
+                  position: 'absolute', top: 34, right: 0, zIndex: 5, minWidth: 142,
+                  padding: 4, borderRadius: 8, background: p.panel, border: '1px solid ' + p.line,
+                  boxShadow: '0 10px 28px rgba(0,0,0,0.16)',
+                }}>
+                  <button type="button" disabled={deletePending} onClick={() => {
+                    if (confirmDel) { onDelete(); setConfirmDel(false); setActionsOpen(false); }
+                    else setConfirmDel(true);
+                  }}
+                    style={{
+                      width: '100%', border: 0, borderRadius: 5, padding: '7px 9px', textAlign: 'left',
+                      background: confirmDel ? p.danger : 'transparent', color: confirmDel ? '#fff' : p.danger,
+                      fontSize: 12, cursor: deletePending ? 'not-allowed' : 'pointer', fontFamily: FONT_SANS,
+                    }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete skill')}</button>
+                </div>
+              )}
+            </div>
+            {onClose && (
+              <button type="button" onClick={onClose} aria-label="Close skill details"
+                style={{
+                  width: 28, height: 28, borderRadius: 14, border: '1px solid ' + p.line,
+                  background: p.panel, color: p.text2, fontSize: 20, lineHeight: 1,
+                  cursor: 'pointer', fontFamily: FONT_SANS,
+                }}>×</button>
+            )}
+          </div>
         </div>
       </div>
 
@@ -568,27 +609,6 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
         </div>
       </Section>
 
-      <div style={{
-        position: 'sticky', bottom: 0, zIndex: 2,
-        display: 'flex', alignItems: 'center', gap: 12,
-        padding: '12px 28px 14px', background: p.panel,
-        borderTop: '1px solid ' + p.lineSoft,
-        boxShadow: '0 -8px 18px rgba(0,0,0,0.04)',
-      }}>
-        <button type="button" disabled={deletePending} onClick={() => {
-          if (confirmDel) { onDelete(); setConfirmDel(false); }
-          else setConfirmDel(true);
-        }}
-          style={{
-            border: '1px solid ' + (confirmDel ? p.danger : 'rgba(255,59,48,0.32)'),
-            background: confirmDel ? p.danger : 'transparent',
-            color: confirmDel ? '#fff' : p.danger, fontSize: 12, fontFamily: FONT_SANS,
-            borderRadius: 6, padding: '6px 11px', cursor: deletePending ? 'not-allowed' : 'pointer',
-            transition: 'background-color 0.12s, color 0.12s', opacity: deletePending ? 0.6 : 1,
-          }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete skill')}</button>
-        <div style={{ flex: 1 }} />
-        {onClose && <span style={{ color: p.text3, fontSize: 11 }}>Press Esc or click × to close</span>}
-      </div>
     </div>
   );
 }
