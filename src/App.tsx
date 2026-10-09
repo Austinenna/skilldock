@@ -802,7 +802,8 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTes
                   {apiKeyConfigured ? 'Active for this app session only. It is not saved.' : 'No key active. Will be sent as Authorization: Bearer for this session.'}
                 </div>
               </div>
-              <input value={apiKey} type="password" onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
+              <input value={apiKey} type="password" inputMode="text" lang="en" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+                onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
                 style={{ width: 220, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 12, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
               <button onClick={useCurrentApiKey} disabled={!apiKey.trim()} style={{
                 border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
