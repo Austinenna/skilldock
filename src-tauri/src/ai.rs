@@ -1,6 +1,7 @@
 use crate::config;
 use crate::error::{AppError, Result};
 use crate::skills;
+use keyring::{Entry, Error as KeyringError};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fs;
@@ -16,6 +17,9 @@ const DEFAULT_CHAT_ENDPOINT: &str = "https://token-plan-sgp.xiaomimimo.com/v1/ch
 const DEFAULT_CHAT_MODEL: &str = "mimo-v2.5-pro";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const SQLITE_BIN: &str = "/usr/bin/sqlite3";
+const KEYRING_SERVICE: &str = "com.skilldock.desktop";
+const LEGACY_KEYRING_SERVICE: &str = "com.skillloom.desktop";
+const API_KEY_ACCOUNT: &str = "ai_api_key";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiProvider {
     Anthropic,
@@ -75,10 +79,61 @@ pub struct AiTestResult {
     pub response: String,
 }
 
-fn clean_api_key(api_key: Option<String>) -> Option<String> {
-    api_key
-        .map(|key| key.trim().to_string())
-        .filter(|key| !key.is_empty())
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiKeyStatus {
+    pub configured: bool,
+}
+
+fn api_key_entry(service: &str) -> Result<Entry> {
+    Ok(Entry::new(service, API_KEY_ACCOUNT)?)
+}
+
+fn read_api_key_from_service(service: &str) -> Result<Option<String>> {
+    match api_key_entry(service)?.get_password() {
+        Ok(key) if !key.trim().is_empty() => Ok(Some(key)),
+        Ok(_) | Err(KeyringError::NoEntry) => Ok(None),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn read_api_key() -> Result<Option<String>> {
+    if let Some(key) = read_api_key_from_service(KEYRING_SERVICE)? {
+        return Ok(Some(key));
+    }
+    read_api_key_from_service(LEGACY_KEYRING_SERVICE)
+}
+
+fn api_key_status() -> Result<ApiKeyStatus> {
+    Ok(ApiKeyStatus {
+        configured: read_api_key()?.is_some(),
+    })
+}
+
+fn clear_api_key_entry(service: &str) -> Result<()> {
+    match api_key_entry(service)?.delete_credential() {
+        Ok(()) | Err(KeyringError::NoEntry) => Ok(()),
+        Err(error) => Err(error.into()),
+    }
+}
+
+fn set_api_key_blocking(key: String) -> Result<ApiKeyStatus> {
+    let trimmed = key.trim();
+    if trimmed.is_empty() {
+        return clear_api_key_blocking();
+    }
+
+    api_key_entry(KEYRING_SERVICE)?.set_password(trimmed)?;
+    // Remove the pre-SkillDock entry after a successful save so there is only
+    // one credential to maintain. If it is absent, this is a no-op.
+    clear_api_key_entry(LEGACY_KEYRING_SERVICE)?;
+    api_key_status()
+}
+
+fn clear_api_key_blocking() -> Result<ApiKeyStatus> {
+    clear_api_key_entry(KEYRING_SERVICE)?;
+    clear_api_key_entry(LEGACY_KEYRING_SERVICE)?;
+    api_key_status()
 }
 
 fn cache_path(app: &tauri::AppHandle) -> Result<PathBuf> {
@@ -537,12 +592,12 @@ fn request_test_message(api_key: &str, config: &AiRequestConfig) -> Result<Strin
     }
 }
 
-fn test_ai_config_blocking(app: tauri::AppHandle, api_key: String) -> Result<AiTestResult> {
+fn test_ai_config_blocking(app: tauri::AppHandle) -> Result<AiTestResult> {
     let config = config::read_config(&app)?;
     let ai_config = resolve_ai_config(&config);
-    let Some(api_key) = clean_api_key(Some(api_key)) else {
+    let Some(api_key) = read_api_key()? else {
         return Err(AppError::Ai(
-            "API key is not configured. Paste one in Settings for this session first.".into(),
+            "API key is not configured. Save one in Settings first.".into(),
         ));
     };
     let response = request_test_message(&api_key, &ai_config)?;
@@ -553,9 +608,34 @@ fn test_ai_config_blocking(app: tauri::AppHandle, api_key: String) -> Result<AiT
     })
 }
 
+fn get_api_key_status_blocking() -> Result<ApiKeyStatus> {
+    api_key_status()
+}
+
 #[tauri::command]
-pub async fn test_ai_config(app: tauri::AppHandle, api_key: String) -> Result<AiTestResult> {
-    tauri::async_runtime::spawn_blocking(move || test_ai_config_blocking(app, api_key))
+pub async fn get_api_key_status() -> Result<ApiKeyStatus> {
+    tauri::async_runtime::spawn_blocking(get_api_key_status_blocking)
+        .await
+        .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
+}
+
+#[tauri::command]
+pub async fn set_api_key(key: String) -> Result<ApiKeyStatus> {
+    tauri::async_runtime::spawn_blocking(move || set_api_key_blocking(key))
+        .await
+        .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
+}
+
+#[tauri::command]
+pub async fn clear_api_key() -> Result<ApiKeyStatus> {
+    tauri::async_runtime::spawn_blocking(clear_api_key_blocking)
+        .await
+        .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
+}
+
+#[tauri::command]
+pub async fn test_ai_config(app: tauri::AppHandle) -> Result<AiTestResult> {
+    tauri::async_runtime::spawn_blocking(move || test_ai_config_blocking(app))
         .await
         .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
 }
@@ -564,7 +644,6 @@ fn generate_summary_blocking(
     app: tauri::AppHandle,
     skill_id: String,
     force: bool,
-    api_key: Option<String>,
 ) -> Result<String> {
     let detail = skills::get_skill_detail(skill_id.clone())?;
     let hash = content_hash(&detail.skill_md);
@@ -578,10 +657,10 @@ fn generate_summary_blocking(
         }
     }
 
-    let Some(api_key) = clean_api_key(api_key) else {
+    let Some(api_key) = read_api_key()? else {
         if force {
             return Err(AppError::Ai(
-                "API key is not configured. Paste one in Settings for this session first.".into(),
+                "API key is not configured. Save one in Settings first.".into(),
             ));
         }
         return Ok(detail.skill.tagline);
@@ -597,13 +676,10 @@ pub async fn generate_summary(
     app: tauri::AppHandle,
     skill_id: String,
     force: bool,
-    api_key: Option<String>,
 ) -> Result<String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        generate_summary_blocking(app, skill_id, force, api_key)
-    })
-    .await
-    .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
+    tauri::async_runtime::spawn_blocking(move || generate_summary_blocking(app, skill_id, force))
+        .await
+        .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
 }
 
 #[cfg(test)]

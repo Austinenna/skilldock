@@ -596,10 +596,10 @@ function Segmented<T extends string>({ value, options, onChange, p }: {
 }
 
 // ─── Settings ─────────────────────────────────────────────────────
-function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTestPending, aiTest, onUseApiKey, onClearApiKey, onTestAi, onRegenerateAllSummaries, regenerateAllPending, onInitialize, initializePending }: {
+function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, aiTestPending, aiTest, onSaveApiKey, onClearApiKey, onTestAi, onRegenerateAllSummaries, regenerateAllPending, onInitialize, initializePending }: {
   p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => Promise<void>;
-  apiKeyConfigured: boolean; aiTestPending: boolean; aiTest: AiTestState;
-  onUseApiKey: (key: string) => boolean; onClearApiKey: () => void; onTestAi: () => Promise<void>; onRegenerateAllSummaries: () => Promise<void>; regenerateAllPending: boolean;
+  apiKeyConfigured: boolean; apiKeyPending: boolean; aiTestPending: boolean; aiTest: AiTestState;
+  onSaveApiKey: (key: string) => Promise<boolean>; onClearApiKey: () => Promise<boolean>; onTestAi: () => Promise<void>; onRegenerateAllSummaries: () => Promise<void>; regenerateAllPending: boolean;
   onInitialize: () => void; initializePending: boolean;
 }) {
   const [apiKey, setApiKey] = useState('');
@@ -637,20 +637,22 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTes
     await setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
     await onTestAi();
   };
-  const useCurrentApiKey = () => {
+  const saveCurrentApiKey = async () => {
     setApiKeyMessage(null);
-    const activated = onUseApiKey(apiKey);
-    if (activated) {
+    const saved = await onSaveApiKey(apiKey);
+    if (saved) {
       setApiKey('');
-      setApiKeyMessage({ tone: 'info', message: 'Key is active for this app session. It is not saved.' });
+      setApiKeyMessage({ tone: 'info', message: 'API key saved securely in macOS Keychain.' });
     } else {
-      setApiKeyMessage({ tone: 'error', message: 'Paste a non-empty API key.' });
+      setApiKeyMessage({ tone: 'error', message: 'API key was not saved. Check the key and Keychain permission.' });
     }
   };
-  const clearCurrentApiKey = () => {
+  const clearCurrentApiKey = async () => {
     setApiKeyMessage(null);
-    onClearApiKey();
-    setApiKeyMessage({ tone: 'info', message: 'Session API key cleared.' });
+    const cleared = await onClearApiKey();
+    setApiKeyMessage(cleared
+      ? { tone: 'info', message: 'Saved API key cleared.' }
+      : { tone: 'error', message: 'API key could not be cleared.' });
   };
 
   return (
@@ -799,26 +801,26 @@ function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, aiTes
                 <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
                   <span style={{ width: 6, height: 6, borderRadius: 3, background: apiKeyConfigured ? p.hub : p.text3, display: 'inline-block' }} />
-                  {apiKeyConfigured ? 'Active for this app session only. It is not saved.' : 'No key active. Will be sent as Authorization: Bearer for this session.'}
+                  {apiKeyConfigured ? 'Saved securely in macOS Keychain.' : 'No key saved. Save one to use AI summaries.'}
                 </div>
               </div>
-              <input value={apiKey} type="password" inputMode="text" lang="en" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              <input value={apiKey} disabled={apiKeyPending} type="password" inputMode="text" lang="en" autoCapitalize="none" autoCorrect="off" spellCheck={false}
                 onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
                 style={{ width: 220, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 12, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-              <button onClick={useCurrentApiKey} disabled={!apiKey.trim()} style={{
+              <button onClick={saveCurrentApiKey} disabled={apiKeyPending || !apiKey.trim()} style={{
                 border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: !apiKey.trim() ? 'not-allowed' : 'pointer',
-                opacity: !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>Use this session</button>
-              <button onClick={clearCurrentApiKey} disabled={!apiKeyConfigured} style={{
+                fontSize: 12, cursor: apiKeyPending || !apiKey.trim() ? 'not-allowed' : 'pointer',
+                opacity: apiKeyPending || !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
+              }}>{apiKeyPending ? 'Saving' : 'Save securely'}</button>
+              <button onClick={clearCurrentApiKey} disabled={apiKeyPending || !apiKeyConfigured} style={{
                 border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+                fontSize: 12, cursor: apiKeyPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: apiKeyPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>Clear</button>
-              <button onClick={testCurrentAiConfig} disabled={aiTestPending || !apiKeyConfigured} style={{
+              <button onClick={testCurrentAiConfig} disabled={apiKeyPending || aiTestPending || !apiKeyConfigured} style={{
                 border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: aiTestPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
+                fontSize: 12, cursor: apiKeyPending || aiTestPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
+                opacity: apiKeyPending || aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
               }}>{aiTestPending ? 'Testing' : 'Test'}</button>
             </div>
             {apiKeyMessage && (
@@ -1151,7 +1153,8 @@ export default function App() {
   const [routePending, setRoutePending] = useState<string | null>(null);
   const [deletePending, setDeletePending] = useState(false);
   const [importPending, setImportPending] = useState(false);
-  const [sessionApiKey, setSessionApiKey] = useState('');
+  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
+  const [apiKeyPending, setApiKeyPending] = useState(false);
   const [aiTestPending, setAiTestPending] = useState(false);
   const [aiTest, setAiTest] = useState<AiTestState>(null);
 
@@ -1167,7 +1170,6 @@ export default function App() {
   const [initRunPending, setInitRunPending] = useState(false);
 
   const p = PALETTES[config.palette];
-  const apiKeyConfigured = sessionApiKey.trim().length > 0;
 
   const showNotice = useCallback((message: string, tone: NoticeTone = 'error') => {
     setNotice({ id: Date.now(), tone, message });
@@ -1201,9 +1203,14 @@ export default function App() {
   useEffect(() => {
     (async () => {
       try {
-        const [pls, cfg] = await Promise.all([api.listPlatforms(), api.getConfig()]);
+        const [pls, cfg, keyStatus] = await Promise.all([
+          api.listPlatforms(),
+          api.getConfig(),
+          api.getApiKeyStatus(),
+        ]);
         setPlatforms(pls);
         setConfigState(cfg);
+        setApiKeyConfigured(keyStatus.configured);
         await refreshSkills();
       } catch (e) {
         console.error(e);
@@ -1249,27 +1256,49 @@ export default function App() {
     setAiTest(null);
   }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
 
-  const useApiKeyForSession = useCallback((key: string) => {
+  const saveApiKey = useCallback(async (key: string) => {
     const trimmed = key.trim();
-    if (!trimmed) return false;
-    setSessionApiKey(trimmed);
-    setAiTest(null);
-    showNotice('API key is active for this session only.', 'info');
-    return true;
-  }, [showNotice]);
+    if (!trimmed || apiKeyPending) return false;
+    setApiKeyPending(true);
+    try {
+      const status = await api.setApiKey(trimmed);
+      setApiKeyConfigured(status.configured);
+      setAiTest(null);
+      showNotice('API key saved securely in macOS Keychain.', 'info');
+      return status.configured;
+    } catch (e) {
+      console.error('setApiKey failed', e);
+      showNotice('API key save failed: ' + e);
+      return false;
+    } finally {
+      setApiKeyPending(false);
+    }
+  }, [apiKeyPending, showNotice]);
 
-  const clearApiKey = useCallback(() => {
-    setSessionApiKey('');
-    setAiTest(null);
-    showNotice('Session API key cleared.', 'info');
-  }, [showNotice]);
+  const clearApiKey = useCallback(async () => {
+    if (apiKeyPending) return false;
+    setApiKeyPending(true);
+    try {
+      const status = await api.clearApiKey();
+      setApiKeyConfigured(status.configured);
+      setAiTest(null);
+      showNotice('Saved API key cleared.', 'info');
+      return !status.configured;
+    } catch (e) {
+      console.error('clearApiKey failed', e);
+      showNotice('API key clear failed: ' + e);
+      return false;
+    } finally {
+      setApiKeyPending(false);
+    }
+  }, [apiKeyPending, showNotice]);
 
   const testAiConfig = useCallback(async () => {
     if (aiTestPending) return;
     setAiTestPending(true);
     setAiTest(null);
     try {
-      const result = await api.testAiConfig(sessionApiKey);
+      const result = await api.testAiConfig();
       setAiTest({
         tone: 'info',
         message: `${result.provider} / ${result.model}: ${result.response}`,
@@ -1282,7 +1311,7 @@ export default function App() {
     } finally {
       setAiTestPending(false);
     }
-  }, [aiTestPending, sessionApiKey, showNotice]);
+  }, [aiTestPending, showNotice]);
 
   const loadInitPreview = useCallback(async (clearResult = true) => {
     if (initScanPending) return;
@@ -1406,7 +1435,7 @@ export default function App() {
       return next;
     });
     try {
-      const summary = await api.generateSummary(id, force, sessionApiKey.trim() || undefined);
+      const summary = await api.generateSummary(id, force);
       setSummaries((current) => ({ ...current, [id]: summary }));
     } catch (e) {
       console.error('generateSummary failed', e);
@@ -1415,10 +1444,10 @@ export default function App() {
     } finally {
       setSummaryPendingId((current) => current === id ? null : current);
     }
-  }, [sessionApiKey, showNotice]);
+  }, [showNotice]);
 
   const regenerateAllSummaries = useCallback(async () => {
-    if (regenerateAllPending || !sessionApiKey.trim()) return;
+    if (regenerateAllPending || !apiKeyConfigured) return;
     setRegenerateAllPending(true);
     try {
       for (const skill of skills) await loadSummary(skill.id, true);
@@ -1426,7 +1455,7 @@ export default function App() {
     } finally {
       setRegenerateAllPending(false);
     }
-  }, [regenerateAllPending, sessionApiKey, skills, loadSummary, showNotice]);
+  }, [apiKeyConfigured, regenerateAllPending, skills, loadSummary, showNotice]);
 
   useEffect(() => {
     const id = selected?.id;
@@ -1539,8 +1568,8 @@ export default function App() {
 
       {active === 'settings' ? (
         <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig}
-          apiKeyConfigured={apiKeyConfigured} aiTestPending={aiTestPending} aiTest={aiTest}
-          onUseApiKey={useApiKeyForSession} onClearApiKey={clearApiKey} onTestAi={testAiConfig}
+          apiKeyConfigured={apiKeyConfigured} apiKeyPending={apiKeyPending} aiTestPending={aiTestPending} aiTest={aiTest}
+          onSaveApiKey={saveApiKey} onClearApiKey={clearApiKey} onTestAi={testAiConfig}
           onRegenerateAllSummaries={regenerateAllSummaries} regenerateAllPending={regenerateAllPending}
           onInitialize={openInitRepository} initializePending={initScanPending} />
       ) : (

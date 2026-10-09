@@ -61,6 +61,10 @@ export interface AiTestResult {
   response: string;
 }
 
+export interface ApiKeyStatus {
+  configured: boolean;
+}
+
 export type InitAction =
   | 'migrateToCentral'
   | 'linkExistingCentral'

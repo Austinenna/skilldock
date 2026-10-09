@@ -5,6 +5,7 @@ import type {
   Config,
   SkillDetail,
   AiTestResult,
+  ApiKeyStatus,
   InitPreview,
   InitResult,
 } from './types';
@@ -26,7 +27,10 @@ export const api = {
   getConfig: () => invoke<Config>('get_config'),
   updateConfig: (patch: Partial<Config>) =>
     invoke<Config>('update_config', { patch }),
-  testAiConfig: (apiKey: string) => invoke<AiTestResult>('test_ai_config', { apiKey }),
-  generateSummary: (skillId: string, force = false, apiKey?: string) =>
-    invoke<string>('generate_summary', { skillId, force, apiKey }),
+  getApiKeyStatus: () => invoke<ApiKeyStatus>('get_api_key_status'),
+  setApiKey: (key: string) => invoke<ApiKeyStatus>('set_api_key', { key }),
+  clearApiKey: () => invoke<ApiKeyStatus>('clear_api_key'),
+  testAiConfig: () => invoke<AiTestResult>('test_ai_config'),
+  generateSummary: (skillId: string, force = false) =>
+    invoke<string>('generate_summary', { skillId, force }),
 };

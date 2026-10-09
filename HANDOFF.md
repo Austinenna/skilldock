@@ -32,7 +32,7 @@ SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中�
 
 ## 已知限制
 
-- live AI 摘要仍需在 Settings 中临时配置 endpoint、model 和 API key。
+- live AI 摘要仍需在 Settings 中配置 endpoint、model 和 API key；API key 保存于 macOS Keychain，界面只读取配置状态。
 - 本机没有 Developer ID 证书时，发布包为 ad-hoc 签名，不能直接通过 Gatekeeper 公证分发。
 - 尚未建立 GitHub Actions CI；当前验证在本机执行。
 - watcher 启动时读取一次平台可见性；运行中修改可见性后可手动 Refresh。
