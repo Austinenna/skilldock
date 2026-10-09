@@ -1240,6 +1240,8 @@ export default function App() {
     const trimmed = key.trim();
     if (!trimmed) return false;
     setSessionApiKey(trimmed);
+    setSummaries({});
+    setSummaryErrors({});
     setAiTest(null);
     showNotice('API key is active for this session only.', 'info');
     return true;
@@ -1403,6 +1405,13 @@ export default function App() {
       setSummaryPendingId((current) => current === id ? null : current);
     }
   }, [sessionApiKey, showNotice]);
+
+  // A summary generated before an API key was configured is only the local
+  // tagline. Retry the selected skill immediately after the key is activated.
+  useEffect(() => {
+    if (!sessionApiKey.trim() || !selected?.id) return;
+    loadSummary(selected.id, true);
+  }, [sessionApiKey]);
 
   useEffect(() => {
     const id = selected?.id;

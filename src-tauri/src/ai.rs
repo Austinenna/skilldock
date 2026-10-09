@@ -16,7 +16,6 @@ const DEFAULT_CHAT_ENDPOINT: &str = "https://token-plan-sgp.xiaomimimo.com/v1/ch
 const DEFAULT_CHAT_MODEL: &str = "mimo-v2.5-pro";
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const SQLITE_BIN: &str = "/usr/bin/sqlite3";
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum AiProvider {
     Anthropic,
@@ -281,14 +280,14 @@ struct ChatChoice {
 
 fn summary_prompt(skill_id: &str, skill_md: &str) -> String {
     format!(
-        "Summarize this SkillDock skill for a local skill manager UI.\n\
-         Skill id: {skill_id}\n\n\
-         Requirements:\n\
-         - Write 2 concise sentences.\n\
-         - Explain what the skill is for and when to use it.\n\
-         - Mention notable prerequisites only if they are explicit.\n\
-         - Do not use markdown bullets.\n\n\
-         SKILL.md:\n{skill_md}"
+        "请为本地 SkillDock 技能管理器界面总结这个技能。\n\
+         技能 ID：{skill_id}\n\n\
+         要求：\n\
+         - 用简洁的两句话回答。\n\
+         - 说明技能的用途以及适合在什么情况下使用。\n\
+         - 只有在 SKILL.md 明确写出时才提及重要前置条件。\n\
+         - 不要使用 Markdown 列表，不要输出英文。\n\n\
+         SKILL.md 内容：\n{skill_md}"
     )
 }
 
