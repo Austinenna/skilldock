@@ -413,6 +413,7 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
 
   const fileBadge = detail ? String(detail.files.length) : (detailLoading ? 'loading' : String(skill.files));
   const summaryBoxIsError = Boolean(summaryError);
+  const hasAiSummary = Boolean(summary && summary !== skill.tagline);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: p.panel }}>
@@ -456,7 +457,7 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
               border: '1px solid ' + p.line, background: p.panel, color: p.text2,
               borderRadius: 6, padding: '4px 9px', fontSize: 11, cursor: summaryLoading ? 'not-allowed' : 'pointer',
               opacity: summaryLoading ? 0.6 : 1, fontFamily: FONT_SANS,
-            }}>{summaryLoading ? 'Generating' : 'Regenerate'}</button>
+            }}>{summaryLoading ? 'Generating' : (hasAiSummary ? 'Regenerate' : 'Generate')}</button>
         )}>
         <div style={{ padding: '4px 28px 20px' }}>
           <div style={{
@@ -1490,12 +1491,6 @@ export default function App() {
     return () => { cancelled = true; };
   }, [selected?.id, details]);
 
-  useEffect(() => {
-    const id = selected?.id;
-    if (!id || summaries[id] != null) return;
-    loadSummary(id, false);
-  }, [selected?.id, summaries, loadSummary]);
-
   const toggleRoute = async (pid: string) => {
     if (!selected || routePending) return;
     const on = selected.routes.includes(pid);
@@ -1608,7 +1603,7 @@ export default function App() {
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
               <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
                 summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
-                onRegenerateSummary={() => loadSummary(selected.id, true)}
+                onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary && selectedSummary !== selected.tagline))}
                 toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
                 routePending={routePending} deletePending={deletePending}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />

@@ -20,6 +20,7 @@
 - API key 保存在 macOS Keychain，不写入配置文件；界面只读取是否已配置，不回显密钥
 - AI 摘要支持 Anthropic Messages 和 Chat Completions 两种自定义端点；Settings 支持连接测试
 - AI 摘要按 `SKILL.md` 内容 hash + provider/model/endpoint 缓存
+- 进入技能详情不会自动调用 AI；点击 Generate/Regenerate 后才发起摘要请求
 - 没有配置 key 时，AI 摘要会降级显示 frontmatter description
 
 下一阶段再做：Developer ID 证书接入后的正式公证、CI release workflow、批量路由。
