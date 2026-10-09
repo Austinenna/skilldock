@@ -436,27 +436,14 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
               {skill.updated && (<><span>·</span><span>updated {skill.updated}</span></>)}
             </div>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            {onClose && (
-              <button type="button" onClick={onClose} aria-label="Close skill details"
-                style={{
-                  width: 28, height: 28, borderRadius: 14, border: '1px solid ' + p.line,
-                  background: p.panel, color: p.text2, fontSize: 20, lineHeight: 1,
-                  cursor: 'pointer', fontFamily: FONT_SANS,
-                }}>×</button>
-            )}
-            <button disabled={deletePending} onClick={() => {
-              if (confirmDel) { onDelete(); setConfirmDel(false); }
-              else setConfirmDel(true);
-            }}
+          {onClose && (
+            <button type="button" onClick={onClose} aria-label="Close skill details"
               style={{
-                border: '1px solid ' + (confirmDel ? p.danger : p.line),
-                background: confirmDel ? p.danger : p.panel,
-                color: confirmDel ? '#fff' : p.danger, fontSize: 12, fontFamily: FONT_SANS,
-                borderRadius: 6, padding: '5px 10px', cursor: deletePending ? 'not-allowed' : 'pointer',
-                transition: 'background-color 0.12s, color 0.12s', opacity: deletePending ? 0.6 : 1,
-              }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete')}</button>
-          </div>
+                width: 28, height: 28, borderRadius: 14, border: '1px solid ' + p.line,
+                background: p.panel, color: p.text2, fontSize: 20, lineHeight: 1,
+                cursor: 'pointer', fontFamily: FONT_SANS, flexShrink: 0,
+              }}>×</button>
+          )}
         </div>
       </div>
 
@@ -580,6 +567,28 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
           )}
         </div>
       </Section>
+
+      <div style={{
+        position: 'sticky', bottom: 0, zIndex: 2,
+        display: 'flex', alignItems: 'center', gap: 12,
+        padding: '12px 28px 14px', background: p.panel,
+        borderTop: '1px solid ' + p.lineSoft,
+        boxShadow: '0 -8px 18px rgba(0,0,0,0.04)',
+      }}>
+        <button type="button" disabled={deletePending} onClick={() => {
+          if (confirmDel) { onDelete(); setConfirmDel(false); }
+          else setConfirmDel(true);
+        }}
+          style={{
+            border: '1px solid ' + (confirmDel ? p.danger : 'rgba(255,59,48,0.32)'),
+            background: confirmDel ? p.danger : 'transparent',
+            color: confirmDel ? '#fff' : p.danger, fontSize: 12, fontFamily: FONT_SANS,
+            borderRadius: 6, padding: '6px 11px', cursor: deletePending ? 'not-allowed' : 'pointer',
+            transition: 'background-color 0.12s, color 0.12s', opacity: deletePending ? 0.6 : 1,
+          }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete skill')}</button>
+        <div style={{ flex: 1 }} />
+        {onClose && <span style={{ color: p.text3, fontSize: 11 }}>Press Esc or click × to close</span>}
+      </div>
     </div>
   );
 }
