@@ -27,7 +27,7 @@ SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中�
 - 初始化实际运行会在 `~/.skilldock/backups/init-*/` 保存来源备份和 `journal.jsonl`；某项失败时按安全检查逆序回滚已完成项，并在结果中标记 `rolled-back`。
 - 文件监听后自动刷新，手动 Refresh 作为兜底。
 - AI 摘要支持 Anthropic Messages 和 Chat Completions 自定义端点，并按内容 hash、provider、model、endpoint 缓存。
-- 进入技能详情只显示 frontmatter description；用户点击 Generate/Regenerate 后才请求 AI。
+- 进入技能详情会先恢复当前 provider/model 对应的 AI 摘要缓存；没有生成过时显示“尚未进行 AI 总结”，不会回退到 frontmatter description。用户点击 Generate/Regenerate 后才请求 AI。
 
 中央目录是唯一真实来源：中央条目若为 symlink、非目录或 canonical 路径越出中央目录，扫描、路由和初始化都会拒绝处理。平台上已有的真实目录或外部 symlink 只有在初始化预览明确标记、用户选中后才会先备份再转换为中央路由；普通路由操作不会覆盖这些冲突项。
 

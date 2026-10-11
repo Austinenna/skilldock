@@ -31,6 +31,8 @@ export const api = {
   setApiKey: (key: string) => invoke<ApiKeyStatus>('set_api_key', { key }),
   clearApiKey: () => invoke<ApiKeyStatus>('clear_api_key'),
   testAiConfig: () => invoke<AiTestResult>('test_ai_config'),
+  getCachedSummary: (skillId: string) =>
+    invoke<string | null>('get_cached_summary', { skillId }),
   generateSummary: (skillId: string, force = false) =>
     invoke<string>('generate_summary', { skillId, force }),
 };

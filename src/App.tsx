@@ -427,7 +427,7 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
 
   const fileBadge = detail ? String(detail.files.length) : (detailLoading ? 'loading' : String(skill.files));
   const summaryBoxIsError = Boolean(summaryError);
-  const hasAiSummary = Boolean(summary && summary !== skill.tagline);
+  const hasAiSummary = Boolean(summary);
 
   return (
     <div style={{ flex: 1, overflowY: 'auto', background: p.panel }}>
@@ -488,7 +488,7 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
         </div>
       </div>
 
-      <Section title="AI Summary" badge={summaryLoading ? 'loading' : (summary && summary !== skill.tagline ? 'ready' : 'fallback')} p={p} open={descOpen} setOpen={setDescOpen}
+      <Section title="AI Summary" badge={summaryLoading ? 'loading' : (hasAiSummary ? 'ready' : 'empty')} p={p} open={descOpen} setOpen={setDescOpen}
         action={(
           <button onClick={(event) => { event.stopPropagation(); onRegenerateSummary(); }} disabled={summaryLoading}
             style={{
@@ -511,7 +511,7 @@ function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoa
               ? 'Generating summary…'
               : summaryError
                 ? summaryError
-                : summary || skill.tagline || 'No summary available.'}
+                : summary || '尚未进行 AI 总结'}
           </div>
           {skill.tags.length > 0 && (
             <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
@@ -1182,6 +1182,7 @@ export default function App() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [summaries, setSummaries] = useState<Record<string, string>>({});
+  const [summaryCacheLoaded, setSummaryCacheLoaded] = useState<Record<string, boolean>>({});
   const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
   const [regenerateAllPending, setRegenerateAllPending] = useState(false);
   const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({});
@@ -1295,6 +1296,12 @@ export default function App() {
 
   useEffect(() => {
     setAiTest(null);
+  }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
+
+  useEffect(() => {
+    setSummaries({});
+    setSummaryCacheLoaded({});
+    setSummaryErrors({});
   }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
 
   const saveApiKey = useCallback(async (key: string) => {
@@ -1466,6 +1473,27 @@ export default function App() {
   const selectedSummary = selected ? summaries[selected.id] : undefined;
   const selectedSummaryLoading = selected ? summaryPendingId === selected.id : false;
   const selectedSummaryError = selected ? summaryErrors[selected.id] ?? null : null;
+
+  useEffect(() => {
+    const id = selected?.id;
+    if (!id || summaries[id] || summaryCacheLoaded[id]) return;
+
+    let cancelled = false;
+    api.getCachedSummary(id)
+      .then((summary) => {
+        if (cancelled) return;
+        if (summary) setSummaries((current) => ({ ...current, [id]: summary }));
+      })
+      .catch((e) => {
+        if (!cancelled) console.error('getCachedSummary failed', e);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setSummaryCacheLoaded((current) => ({ ...current, [id]: true }));
+      });
+
+    return () => { cancelled = true; };
+  }, [selected?.id, summaries, summaryCacheLoaded]);
 
   useEffect(() => {
     if (config.view !== 'grid' || active === 'settings') setGridDetailOpen(false);
@@ -1661,7 +1689,7 @@ export default function App() {
               <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
               <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
                 summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
-                onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary && selectedSummary !== selected.tagline))}
+                onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary))}
                 toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
                 routePending={routePending} deletePending={deletePending}
                 visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />
@@ -1705,7 +1733,7 @@ export default function App() {
           >
             <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
               summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
-              onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary && selectedSummary !== selected.tagline))}
+              onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary))}
               toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
               routePending={routePending} deletePending={deletePending}
               visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette}

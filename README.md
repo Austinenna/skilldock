@@ -21,7 +21,7 @@
 - AI 摘要支持 Anthropic Messages 和 Chat Completions 两种自定义端点；Settings 支持连接测试
 - AI 摘要按 `SKILL.md` 内容 hash + provider/model/endpoint 缓存
 - 进入技能详情不会自动调用 AI；点击 Generate/Regenerate 后才发起摘要请求
-- 没有配置 key 时，AI 摘要会降级显示 frontmatter description
+- 没有 AI 摘要缓存时，详情区显示“尚未进行 AI 总结”；已有缓存会在进入详情时直接恢复
 
 下一阶段再做：Developer ID 证书接入后的正式公证、CI release workflow、批量路由。
 

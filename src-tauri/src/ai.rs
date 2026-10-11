@@ -658,17 +658,36 @@ fn generate_summary_blocking(
     }
 
     let Some(api_key) = read_api_key()? else {
-        if force {
-            return Err(AppError::Ai(
-                "API key is not configured. Save one in Settings first.".into(),
-            ));
-        }
-        return Ok(detail.skill.tagline);
+        return Err(AppError::Ai(
+            "API key is not configured. Save one in Settings first.".into(),
+        ));
     };
 
     let summary = request_summary(&api_key, &ai_config, &skill_id, &detail.skill_md)?;
     store_summary(&conn, &skill_id, &hash, &summary, &ai_config.model_label)?;
     Ok(summary)
+}
+
+fn get_cached_summary_blocking(
+    app: tauri::AppHandle,
+    skill_id: String,
+) -> Result<Option<String>> {
+    let detail = skills::get_skill_detail(skill_id.clone())?;
+    let hash = content_hash(&detail.skill_md);
+    let conn = open_cache(&app)?;
+    let config = config::read_config(&app)?;
+    let ai_config = resolve_ai_config(&config);
+    cached_summary(&conn, &skill_id, &hash, &ai_config.model_label)
+}
+
+#[tauri::command]
+pub async fn get_cached_summary(
+    app: tauri::AppHandle,
+    skill_id: String,
+) -> Result<Option<String>> {
+    tauri::async_runtime::spawn_blocking(move || get_cached_summary_blocking(app, skill_id))
+        .await
+        .map_err(|error| AppError::Ai(format!("AI worker failed: {error}")))?
 }
 
 #[tauri::command]
