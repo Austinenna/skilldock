@@ -4,6 +4,7 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::Manager;
 
+/// GUI-only preferences. Skill data lives in the skl root, not here.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 #[serde(rename_all = "camelCase")]
@@ -11,10 +12,6 @@ pub struct Config {
     pub palette: String,
     pub density: String,
     pub view: String,
-    pub hidden_platforms: Vec<String>,
-    pub ai_provider: String,
-    pub ai_endpoint: String,
-    pub ai_model: String,
 }
 
 impl Default for Config {
@@ -23,22 +20,6 @@ impl Default for Config {
             palette: "cool".into(),
             density: "comfortable".into(),
             view: "list".into(),
-            hidden_platforms: [
-                "cursor",
-                "gemini",
-                "copilot",
-                "windsurf",
-                "aider",
-                "qclaw",
-                "easyclaw",
-                "workbuddy",
-            ]
-            .iter()
-            .map(|s| s.to_string())
-            .collect(),
-            ai_provider: "anthropic".into(),
-            ai_endpoint: "https://api.minimaxi.com/anthropic/v1/messages".into(),
-            ai_model: "MiniMax-M2.7".into(),
         }
     }
 }

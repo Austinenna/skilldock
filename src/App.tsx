@@ -1,1217 +1,45 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { listen } from '@tauri-apps/api/event';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { api } from './ipc';
-import { PALETTES, PALETTE_OPTIONS, PALETTE_KEYS, type Palette } from './palettes';
-import type {
-  AiProvider,
-  Config,
-  InitAction,
-  InitPreview,
-  InitResult,
-  PaletteKey,
-  Platform,
-  Skill,
-  SkillDetail,
-} from './types';
+import { PALETTES } from './palettes';
+import type { Config, Finding, Overview, SkillDetail, SyncResult } from './types';
+import { Sidebar, type ViewKey } from './Sidebar';
+import { ListHeader, SkillCard, SkillRow } from './SkillList';
+import { Detail } from './Detail';
+import { DoctorPane, NewSkillModal, SettingsPane } from './Panes';
+import {
+  DragSpacer, FONT_SANS, MONO, NoticeToast, STATE_LABELS, WindowDragStrip,
+  agentName, describeSync, useFontLink, type AppNotice, type NoticeTone,
+} from './ui';
 
-const FONT_SANS = '-apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Inter", sans-serif';
-const FONT_DISPLAY_WARM = '"Instrument Serif", Georgia, serif';
-const MONO = '"JetBrains Mono", "SF Mono", Menlo, monospace';
-const AI_PRESETS: Record<AiProvider, { endpoint: string; model: string }> = {
-  anthropic: {
-    endpoint: 'https://api.minimaxi.com/anthropic/v1/messages',
-    model: 'MiniMax-M2.7',
-  },
-  chat: {
-    endpoint: 'https://token-plan-sgp.xiaomimimo.com/v1/chat/completions',
-    model: 'mimo-v2.5-pro',
-  },
-};
-
-const PLATFORM_ACCENTS: Record<string, string> = {
-  central: '#34c759', claude: '#bf5af2', codex: '#5e9eff', openclaw: '#ff9f0a',
-  cursor: '#a0a0a0', gemini: '#4285f4', copilot: '#1f2328', windsurf: '#2dd4bf',
-  aider: '#dc2626', qclaw: '#ef4444', easyclaw: '#fbbf24', workbuddy: '#10b981',
-};
-const PLATFORM_ICONS: Record<string, string> = {
-  central: '◎', claude: 'C', codex: 'X', openclaw: '🦞', cursor: 'c',
-  gemini: 'G', copilot: 'p', windsurf: 'W', aider: 'A',
-  qclaw: 'q', easyclaw: 'E', workbuddy: 'W',
-};
-
-type NoticeTone = 'error' | 'info';
-
-interface AppNotice {
-  id: number;
-  tone: NoticeTone;
-  message: string;
-}
-
-type AiTestState = { tone: NoticeTone; message: string } | null;
-
-const INIT_ACTION_LABELS: Record<InitAction, string> = {
-  migrateToCentral: 'Migrate',
-  linkExistingCentral: 'Link existing',
-  linkPlannedCentral: 'Link planned',
-  resolveConflictSource: 'Choose',
-  alreadyRouted: 'Routed',
-  skipConflict: 'Conflict',
-  skipInvalid: 'Skipped',
-};
-
-function isInitActionSelectable(action: InitAction) {
-  return action === 'migrateToCentral' || action === 'linkExistingCentral' || action === 'linkPlannedCentral' || action === 'resolveConflictSource';
-}
-
-function isInitActionBulkSelectable(action: InitAction) {
-  return action === 'migrateToCentral' || action === 'linkExistingCentral' || action === 'linkPlannedCentral';
-}
-
-// ─── small helpers ────────────────────────────────────────────────
-function useFontLink() {
-  useEffect(() => {
-    if (!document.getElementById('skilldock-fonts')) {
-      const l = document.createElement('link');
-      l.id = 'skilldock-fonts';
-      l.rel = 'stylesheet';
-      l.href = 'https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap';
-      document.head.appendChild(l);
-    }
-    if (!document.getElementById('skilldock-global-styles')) {
-      const style = document.createElement('style');
-      style.id = 'skilldock-global-styles';
-      style.textContent = '@keyframes skilldock-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }';
-      document.head.appendChild(style);
-    }
-  }, []);
-}
-
-function startWindowDrag(event: MouseEvent<HTMLElement>) {
-  if (event.button !== 0) return;
-  try {
-    getCurrentWindow().startDragging().catch((error) => {
-      console.error('Failed to start window drag', error);
-    });
-  } catch (error) {
-    console.error('Failed to start window drag', error);
-  }
-}
-
-function WindowDragStrip() {
-  return (
-    <div
-      data-tauri-drag-region
-      onMouseDown={startWindowDrag}
-      style={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        height: 32,
-        zIndex: 20,
-        background: 'transparent',
-      }}
-    />
-  );
-}
-
-function NoticeToast({ notice, onClose, p }: {
-  notice: AppNotice | null; onClose: () => void; p: Palette;
-}) {
-  if (!notice) return null;
-  const isError = notice.tone === 'error';
-  return (
-    <div style={{
-      position: 'absolute', top: 38, right: 18, zIndex: 40, maxWidth: 420,
-      display: 'flex', alignItems: 'flex-start', gap: 10,
-      padding: '10px 12px', borderRadius: 8,
-      background: p.panel, border: '1px solid ' + (isError ? p.danger : p.line),
-      boxShadow: '0 12px 40px rgba(0,0,0,0.16)', color: p.text,
-      fontSize: 12, lineHeight: 1.45,
-    }}>
-      <div style={{
-        width: 8, height: 8, borderRadius: 4, marginTop: 5,
-        background: isError ? p.danger : p.accent, flexShrink: 0,
-      }} />
-      <div style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere' }}>{notice.message}</div>
-      <button onClick={onClose} aria-label="Dismiss notice" style={{
-        border: 0, background: 'transparent', color: p.text3, cursor: 'pointer',
-        fontSize: 13, lineHeight: 1, padding: 2, fontFamily: FONT_SANS,
-      }}>×</button>
-    </div>
-  );
-}
-
-// ─── Sidebar ──────────────────────────────────────────────────────
-function SidebarSection({ title, p, children }: { title: string; p: Palette; children: React.ReactNode }) {
-  return (
-    <div style={{ padding: '14px 0 4px' }}>
-      <div style={{ padding: '0 16px 6px', fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.2, textTransform: 'uppercase' }}>{title}</div>
-      {children}
-    </div>
-  );
-}
-
-function SidebarItem({ icon, label, count, active, accent, onClick, p }: {
-  icon: string; label: string; count?: number; active: boolean; accent?: string; onClick: () => void; p: Palette;
-}) {
-  const [hover, setHover] = useState(false);
-  return (
-    <div onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        margin: '0 8px', padding: '5px 8px', borderRadius: 6,
-        display: 'flex', alignItems: 'center', gap: 8,
-        fontSize: 13, color: active ? '#fff' : p.text,
-        backgroundColor: active ? p.accent : (hover ? 'rgba(0,0,0,0.04)' : 'transparent'),
-        cursor: 'pointer', userSelect: 'none', height: 24,
-      }}>
-      <div style={{
-        width: 16, height: 16, borderRadius: 4,
-        background: active ? 'rgba(255,255,255,0.22)' : (accent || 'rgba(0,0,0,0.12)'),
-        flexShrink: 0, display: 'grid', placeItems: 'center',
-        fontSize: 10, color: active ? '#fff' : 'rgba(0,0,0,0.55)', fontWeight: 700,
-      }}>{icon}</div>
-      <span style={{ flex: 1, fontWeight: active ? 500 : 400, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
-      {count != null && (
-        <span style={{ fontSize: 11, color: active ? 'rgba(255,255,255,0.85)' : p.text3, fontVariantNumeric: 'tabular-nums' }}>{count}</span>
-      )}
-    </div>
-  );
-}
-
-function Sidebar({ active, setActive, counts, visiblePlatforms, totalSkills, p }: {
-  active: string; setActive: (s: string) => void; counts: Record<string, number>;
-  visiblePlatforms: Platform[]; totalSkills: number; p: Palette;
-}) {
-  const hub = visiblePlatforms.find((pl) => pl.isHub);
-  const routes = visiblePlatforms.filter((pl) => !pl.isHub);
-  return (
-    <div style={{ width: 200, background: p.sidebar, borderRight: '1px solid ' + p.line, display: 'flex', flexDirection: 'column', flexShrink: 0 }}>
-      <div data-tauri-drag-region style={{ height: 28, flexShrink: 0 }} />
-      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: 12 }}>
-        {hub && (
-          <SidebarSection title="Hub" p={p}>
-            <SidebarItem icon={PLATFORM_ICONS[hub.id] ?? '◎'} label={hub.name} count={counts[hub.id]}
-              accent={PLATFORM_ACCENTS[hub.id]} active={active === hub.id} onClick={() => setActive(hub.id)} p={p} />
-          </SidebarSection>
-        )}
-        {routes.length > 0 && (
-          <SidebarSection title="Routes" p={p}>
-            {routes.map((pl) => (
-              <SidebarItem key={pl.id} icon={PLATFORM_ICONS[pl.id] || pl.short[0]} label={pl.name} count={counts[pl.id]}
-                accent={PLATFORM_ACCENTS[pl.id] || p.text3}
-                active={active === pl.id} onClick={() => setActive(pl.id)} p={p} />
-            ))}
-          </SidebarSection>
-        )}
-        <SidebarSection title="Tools" p={p}>
-          <SidebarItem icon="⚙" label="Settings" accent="#8e8e93"
-            active={active === 'settings'} onClick={() => setActive('settings')} p={p} />
-        </SidebarSection>
-      </div>
-      <div style={{ padding: '8px 12px', fontSize: 11, color: p.text3, borderTop: '1px solid ' + p.lineSoft, display: 'flex', alignItems: 'center', gap: 6 }}>
-        <span style={{ width: 6, height: 6, borderRadius: 3, background: p.hub }} />
-        {totalSkills} skills · {visiblePlatforms.length - (hub ? 1 : 0)} routes
-      </div>
-    </div>
-  );
-}
-
-// ─── List header / rows / cards ────────────────────────────────────
-function ListHeader({ title, q, setQ, view, setView, onImport, onRefresh, refreshing, importDisabled, p, density }: {
-  title: string; q: string; setQ: (s: string) => void; view: 'list' | 'grid';
-  setView: (v: 'list' | 'grid') => void; onImport: () => void; onRefresh: () => void;
-  refreshing: boolean; importDisabled: boolean; p: Palette; density: string;
-}) {
-  return (
-    <div style={{ borderBottom: '1px solid ' + p.line, padding: density === 'compact' ? '8px 12px' : '10px 12px 10px 14px', display: 'flex', flexDirection: 'column', gap: 8, background: p.panel }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ fontSize: 13, fontWeight: 600, color: p.text, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{title}</div>
-        <div style={{ flex: 1 }} />
-        <button onClick={onRefresh} disabled={refreshing} aria-label="Refresh skills" title="Refresh" style={{
-          width: 28, height: 28, border: '1px solid ' + p.line, background: p.panel,
-          color: p.text, cursor: refreshing ? 'not-allowed' : 'pointer',
-          borderRadius: 6, padding: 0, fontSize: 15, fontWeight: 600, fontFamily: FONT_SANS,
-          opacity: refreshing ? 0.75 : 1, display: 'grid', placeItems: 'center', flexShrink: 0,
-        }}>
-          <span style={{ display: 'inline-block', lineHeight: 1, animation: refreshing ? 'skilldock-spin 0.8s linear infinite' : undefined }}>↻</span>
-        </button>
-        <div style={{ display: 'flex', background: 'rgba(0,0,0,0.05)', borderRadius: 6, padding: 2 }}>
-          {(['list', 'grid'] as const).map((m) => (
-            <button key={m} onClick={() => setView(m)}
-              style={{
-                border: 0, background: view === m ? p.panel : 'transparent', cursor: 'pointer',
-                borderRadius: 4, padding: '3px 8px', fontSize: 11, color: p.text, fontFamily: FONT_SANS,
-                boxShadow: view === m ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-              }}>{m === 'list' ? '☰' : '▦'}</button>
-          ))}
-        </div>
-        <button onClick={onImport} disabled={importDisabled} style={{
-          border: 0, background: p.accent, color: '#fff', cursor: importDisabled ? 'not-allowed' : 'pointer',
-          borderRadius: 6, padding: '4px 10px', fontSize: 12, fontWeight: 500, fontFamily: FONT_SANS,
-          display: 'flex', alignItems: 'center', gap: 4, opacity: importDisabled ? 0.6 : 1,
-          whiteSpace: 'nowrap', flexShrink: 0, minHeight: 28,
-        }}>＋ Import</button>
-      </div>
-      <div style={{ position: 'relative' }}>
-        <span style={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', color: p.text3, fontSize: 12 }}>⌕</span>
-        <input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Filter skills…"
-          style={{
-            width: '100%', boxSizing: 'border-box', border: 'none', background: 'rgba(0,0,0,0.05)',
-            borderRadius: 6, padding: '5px 8px 5px 24px', fontSize: 12, color: p.text, outline: 'none',
-            fontFamily: FONT_SANS,
-          }} />
-      </div>
-    </div>
-  );
-}
-
-function chipFor(routes: string[], platforms: Platform[], p: Palette) {
-  return routes.slice(0, 4).map((r) => {
-    const pl = platforms.find((x) => x.id === r);
-    return (
-      <span key={r} title={pl?.name}
-        style={{
-          fontSize: 9, padding: '1px 6px', borderRadius: 8,
-          background: r === 'central' ? p.hubSoft : 'rgba(0,0,0,0.06)',
-          color: r === 'central' ? p.hubText : p.text2,
-          fontWeight: 500, letterSpacing: 0.2,
-        }}>{pl?.short ?? r}</span>
-    );
-  });
-}
-
-function SkillRow({ skill, selected, onClick, p, density, platforms }: {
-  skill: Skill; selected: boolean; onClick: () => void; p: Palette; density: string; platforms: Platform[];
-}) {
-  const [hover, setHover] = useState(false);
-  const pad = density === 'compact' ? '7px 14px' : '10px 14px';
-  return (
-    <div onClick={onClick}
-      onMouseEnter={() => setHover(true)}
-      onMouseLeave={() => setHover(false)}
-      style={{
-        padding: pad, borderBottom: '1px solid ' + p.lineSoft,
-        backgroundColor: selected ? p.rowSel : (hover ? p.rowHover : 'transparent'),
-        cursor: 'pointer', display: 'flex', gap: 10, alignItems: 'flex-start',
-      }}>
-      <div style={{
-        width: 28, height: 28, borderRadius: 6, background: p.iconBg,
-        color: p.text2, fontSize: 13, fontWeight: 700, fontFamily: MONO,
-        display: 'grid', placeItems: 'center', flexShrink: 0, marginTop: 2,
-      }}>{skill.title[0]}</div>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ display: 'flex', alignItems: 'baseline', gap: 6 }}>
-          <span style={{ fontSize: 13, fontWeight: 500, color: p.text, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{skill.title}</span>
-          {skill.version && <span style={{ fontSize: 10, color: p.text3, fontFamily: MONO }}>{skill.version}</span>}
-        </div>
-        <div style={{ fontSize: 12, color: p.text2, marginTop: 2, lineHeight: 1.4, overflow: 'hidden', textOverflow: 'ellipsis', display: '-webkit-box', WebkitLineClamp: 1, WebkitBoxOrient: 'vertical' }}>
-          {skill.tagline || <span style={{ color: p.text3, fontStyle: 'italic' }}>No description</span>}
-        </div>
-        {density !== 'compact' && (
-          <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>{chipFor(skill.routes, platforms, p)}</div>
-        )}
-      </div>
-      <div style={{ width: 4, height: 4, borderRadius: 2, background: p.hub, marginTop: 8, flexShrink: 0 }} />
-    </div>
-  );
-}
-
-function SkillCard({ skill, selected, onClick, p, platforms }: {
-  skill: Skill; selected: boolean; onClick: () => void; p: Palette; platforms: Platform[];
-}) {
-  return (
-    <div onClick={onClick}
-      style={{
-        padding: 12, background: selected ? p.rowSel : p.panel,
-        border: '1px solid ' + (selected ? p.accent : p.line),
-        borderRadius: 8, cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 6,
-      }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <div style={{ width: 22, height: 22, borderRadius: 5, background: p.iconBg, color: p.text2, fontSize: 11, fontWeight: 700, fontFamily: MONO, display: 'grid', placeItems: 'center' }}>{skill.title[0]}</div>
-        <div style={{ fontSize: 12, fontWeight: 600, color: p.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{skill.title}</div>
-      </div>
-      <div style={{ fontSize: 11, color: p.text2, lineHeight: 1.4, overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>
-        {skill.tagline || <span style={{ color: p.text3, fontStyle: 'italic' }}>No description</span>}
-      </div>
-      <div style={{ display: 'flex', gap: 3 }}>{chipFor(skill.routes, platforms, p)}</div>
-      <div style={{ fontSize: 10, color: p.text3, fontFamily: MONO }}>{skill.routes.length} routes · {skill.size}</div>
-    </div>
-  );
-}
-
-// ─── Detail ───────────────────────────────────────────────────────
-function Section({ title, badge, open = true, setOpen, children, action, p }: {
-  title: string; badge?: string; open?: boolean; setOpen?: (b: boolean) => void;
-  children: React.ReactNode; action?: React.ReactNode; p: Palette;
-}) {
-  const collapsible = !!setOpen;
-  return (
-    <div style={{ borderBottom: '1px solid ' + p.lineSoft }}>
-      <div onClick={collapsible && setOpen ? () => setOpen(!open) : undefined}
-        style={{
-          padding: '14px 28px 8px', display: 'flex', alignItems: 'center', gap: 8,
-          cursor: collapsible ? 'pointer' : 'default', userSelect: 'none',
-        }}>
-        {collapsible && (
-          <span style={{ fontSize: 10, color: p.text3, transition: 'transform 0.15s', transform: open ? 'rotate(90deg)' : 'rotate(0)', display: 'inline-block' }}>▶</span>
-        )}
-        <span style={{ fontSize: 11, fontWeight: 700, color: p.text2, letterSpacing: 0.4, textTransform: 'uppercase' }}>{title}</span>
-        {badge && <span style={{ fontSize: 10, color: p.text3, fontFamily: MONO }}>{badge}</span>}
-        <div style={{ flex: 1 }} />
-        {action}
-      </div>
-      {open && children}
-    </div>
-  );
-}
-
-function Toggle({ on, disabled, blocked, onClick, p }: {
-  on: boolean; disabled?: boolean; blocked?: boolean; onClick: () => void; p: Palette;
-}) {
-  const unavailable = disabled || blocked;
-  return (
-    <button
-      type="button"
-      onClick={(event) => { event.stopPropagation(); onClick(); }}
-      disabled={disabled}
-      aria-pressed={on}
-      aria-disabled={unavailable}
-      style={{
-        width: 34, height: 20, borderRadius: 10, border: 0, padding: 0,
-        backgroundColor: on ? p.hub : 'rgba(120,120,128,0.32)',
-        opacity: unavailable ? 0.6 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
-        position: 'relative', transition: 'background-color 0.15s',
-      }}>
-      <div style={{
-        width: 16, height: 16, borderRadius: 8, background: '#fff',
-        position: 'absolute', top: 2, left: on ? 16 : 2,
-        transition: 'left 0.15s', boxShadow: '0 1px 2px rgba(0,0,0,0.2)',
-      }} />
-    </button>
-  );
-}
-
-function Detail({ skill, detail, detailLoading, detailError, summary, summaryLoading, summaryError, onRegenerateSummary, toggleRoute, onDelete, onNotice, routePending, deletePending, visiblePlatforms, p, paletteKey, onClose }: {
-  skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
-  summary?: string; summaryLoading: boolean; summaryError: string | null; onRegenerateSummary: () => void;
-  toggleRoute: (pid: string) => void; onDelete: () => void; onNotice: (message: string, tone?: NoticeTone) => void;
-  routePending: string | null; deletePending: boolean;
-  visiblePlatforms: Platform[]; p: Palette; paletteKey: PaletteKey; onClose?: () => void;
-}) {
-  const [descOpen, setDescOpen] = useState(true);
-  const [filesOpen, setFilesOpen] = useState(true);
-  const [confirmDel, setConfirmDel] = useState(false);
-  const [actionsOpen, setActionsOpen] = useState(false);
-  const actionsRef = useRef<HTMLDivElement>(null);
-  const display = paletteKey === 'warm' ? FONT_DISPLAY_WARM : FONT_SANS;
-  const titleSize = paletteKey === 'warm' ? 28 : 19;
-  const titleWeight = paletteKey === 'warm' ? 400 : 600;
-
-  useEffect(() => { setConfirmDel(false); setActionsOpen(false); }, [skill.id]);
-
-  useEffect(() => {
-    if (!actionsOpen) {
-      setConfirmDel(false);
-      return;
-    }
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!actionsRef.current?.contains(event.target as Node)) setActionsOpen(false);
-    };
-    document.addEventListener('pointerdown', handlePointerDown);
-    return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [actionsOpen]);
-
-  const fileBadge = detail ? String(detail.files.length) : (detailLoading ? 'loading' : String(skill.files));
-  const summaryBoxIsError = Boolean(summaryError);
-  const hasAiSummary = Boolean(summary);
-
-  return (
-    <div style={{ flex: 1, overflowY: 'auto', background: p.panel }}>
-      <div style={{ padding: '24px 28px 16px', borderBottom: '1px solid ' + p.lineSoft }}>
-        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14 }}>
-          <div style={{
-            width: 52, height: 52, borderRadius: 12, background: p.iconLg,
-            color: p.iconTextLg, fontSize: 22, fontWeight: 700, fontFamily: MONO,
-            display: 'grid', placeItems: 'center',
-            boxShadow: '0 4px 12px rgba(0,0,0,0.08)', flexShrink: 0,
-          }}>{skill.title[0].toUpperCase()}</div>
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: titleSize, fontWeight: titleWeight, color: p.text, letterSpacing: -0.3, fontFamily: display, lineHeight: 1.1 }}>{skill.title}</div>
-            <div style={{ fontSize: 13, color: p.text2, marginTop: 4 }}>{skill.tagline || <span style={{ color: p.text3, fontStyle: 'italic' }}>No description</span>}</div>
-            <div style={{ display: 'flex', gap: 12, marginTop: 8, fontSize: 11, color: p.text3, fontFamily: MONO, flexWrap: 'wrap' }}>
-              {skill.version && (<><span>v{skill.version}</span><span>·</span></>)}
-              <span>{skill.files} files</span>
-              <span>·</span>
-              <span>{skill.size}</span>
-              {skill.updated && (<><span>·</span><span>updated {skill.updated}</span></>)}
-            </div>
-          </div>
-          <div ref={actionsRef} style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
-            <div style={{ position: 'relative' }}>
-              <button type="button" onClick={() => setActionsOpen((open) => !open)} aria-label="More skill actions" aria-expanded={actionsOpen}
-                style={{
-                  width: 30, height: 28, borderRadius: 7, border: '1px solid ' + p.line,
-                  background: actionsOpen ? 'rgba(0,0,0,0.05)' : p.panel, color: p.text2,
-                  fontSize: 16, lineHeight: 1, letterSpacing: 1, cursor: 'pointer', fontFamily: FONT_SANS,
-                }}>•••</button>
-              {actionsOpen && (
-                <div style={{
-                  position: 'absolute', top: 34, right: 0, zIndex: 5, minWidth: 142,
-                  padding: 4, borderRadius: 8, background: p.panel, border: '1px solid ' + p.line,
-                  boxShadow: '0 10px 28px rgba(0,0,0,0.16)',
-                }}>
-                  <button type="button" disabled={deletePending} onClick={() => {
-                    if (confirmDel) { onDelete(); setConfirmDel(false); setActionsOpen(false); }
-                    else setConfirmDel(true);
-                  }}
-                    style={{
-                      width: '100%', border: 0, borderRadius: 5, padding: '7px 9px', textAlign: 'left',
-                      background: confirmDel ? p.danger : 'transparent', color: confirmDel ? '#fff' : p.danger,
-                      fontSize: 12, cursor: deletePending ? 'not-allowed' : 'pointer', fontFamily: FONT_SANS,
-                    }}>{deletePending ? 'Deleting' : (confirmDel ? 'Confirm delete' : 'Delete skill')}</button>
-                </div>
-              )}
-            </div>
-            {onClose && (
-              <button type="button" onClick={onClose} aria-label="Close skill details"
-                style={{
-                  width: 28, height: 28, borderRadius: 14, border: '1px solid ' + p.line,
-                  background: p.panel, color: p.text2, fontSize: 20, lineHeight: 1,
-                  cursor: 'pointer', fontFamily: FONT_SANS,
-                }}>×</button>
-            )}
-          </div>
-        </div>
-      </div>
-
-      <Section title="AI Summary" badge={summaryLoading ? 'loading' : (hasAiSummary ? 'ready' : 'empty')} p={p} open={descOpen} setOpen={setDescOpen}
-        action={(
-          <button onClick={(event) => { event.stopPropagation(); onRegenerateSummary(); }} disabled={summaryLoading}
-            style={{
-              border: '1px solid ' + p.line, background: p.panel, color: p.text2,
-              borderRadius: 6, padding: '4px 9px', fontSize: 11, cursor: summaryLoading ? 'not-allowed' : 'pointer',
-              opacity: summaryLoading ? 0.6 : 1, fontFamily: FONT_SANS,
-            }}>{summaryLoading ? 'Generating' : (hasAiSummary ? 'Regenerate' : 'Generate')}</button>
-        )}>
-        <div style={{ padding: '4px 28px 20px' }}>
-          <div style={{
-            fontSize: 13, lineHeight: 1.6, color: summaryBoxIsError ? p.danger : p.text3,
-            padding: '14px 16px', borderRadius: 10,
-            background: summaryBoxIsError ? 'rgba(255,59,48,0.06)' : 'linear-gradient(180deg, ' + p.accentSoft + ', ' + p.accentSoft.replace(/0\.\d+/, '0.03') + ')',
-            border: '1px solid ' + (summaryBoxIsError ? 'rgba(255,59,48,0.22)' : p.accentSoft),
-            fontStyle: paletteKey === 'warm' ? 'italic' : 'normal',
-            fontFamily: paletteKey === 'warm' ? FONT_DISPLAY_WARM : FONT_SANS,
-            ...(paletteKey === 'warm' ? { fontSize: 16 } : {}),
-          }}>
-            {summaryLoading
-              ? 'Generating summary…'
-              : summaryError
-                ? summaryError
-                : summary || '尚未进行 AI 总结'}
-          </div>
-          {skill.tags.length > 0 && (
-            <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
-              {skill.tags.map((t) => (
-                <span key={t} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 10, background: 'rgba(0,0,0,0.05)', color: p.text2, fontFamily: MONO }}>#{t}</span>
-              ))}
-            </div>
-          )}
-        </div>
-      </Section>
-
-      <Section title="Routing" badge={`${skill.routes.length} active`} p={p}>
-        <div style={{ padding: '4px 28px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-          {visiblePlatforms.map((pl) => {
-            const on = skill.routes.includes(pl.id);
-            const conflict = skill.routeConflicts.find((item) => item.platformId === pl.id);
-            const pending = routePending === pl.id;
-            const handleRouteClick = () => {
-              if (pl.isHub || pending) return;
-              if (conflict) {
-                onNotice(conflict.message, 'error');
-                return;
-              }
-              toggleRoute(pl.id);
-            };
-            return (
-              <div
-                key={pl.id}
-                onClick={handleRouteClick}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    handleRouteClick();
-                  }
-                }}
-                role={pl.isHub ? undefined : 'button'}
-                tabIndex={pl.isHub ? undefined : 0}
-                title={conflict?.message}
-                style={{
-                display: 'flex', alignItems: 'center', gap: 12,
-                padding: '10px 12px', border: '1px solid ' + p.line, borderRadius: 8,
-                background: on ? 'transparent' : 'rgba(0,0,0,0.015)',
-                cursor: pl.isHub ? 'default' : (pending ? 'not-allowed' : 'pointer'),
-              }}>
-                <div style={{ width: 24, height: 24, borderRadius: 6, background: pl.isHub ? p.hubSoft : 'rgba(0,0,0,0.06)', color: p.text2, fontSize: 12, fontWeight: 700, display: 'grid', placeItems: 'center', fontFamily: MONO, flexShrink: 0 }}>{pl.short[0]}</div>
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, color: p.text, fontWeight: 500, display: 'flex', alignItems: 'center', gap: 6 }}>
-                    {pl.name}
-                    {pl.isHub && <span style={{ fontSize: 9, color: p.hubText, background: p.hubSoft, padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>HUB</span>}
-                    {conflict && <span style={{ fontSize: 9, color: p.danger, background: 'rgba(255,59,48,0.1)', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>CONFLICT</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: conflict ? p.danger : p.text3, fontFamily: MONO, marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{pl.path}{skill.id}</div>
-                </div>
-                <Toggle on={on} disabled={pl.isHub || pending} blocked={!!conflict} onClick={handleRouteClick} p={p} />
-              </div>
-            );
-          })}
-        </div>
-      </Section>
-
-      <Section title="Files" badge={fileBadge} p={p} open={filesOpen} setOpen={setFilesOpen}>
-        <div style={{ padding: '4px 28px 24px', fontFamily: MONO, fontSize: 12, color: p.text2 }}>
-          {detailLoading ? (
-            <div style={{ color: p.text3 }}>Loading file details…</div>
-          ) : detailError ? (
-            <div style={{ color: p.danger }}>{detailError}</div>
-          ) : detail ? (
-            <>
-              <div style={{ color: p.text3, marginBottom: 10, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                {detail.sourcePath}
-              </div>
-              {detail.files.length === 0 ? (
-                <div style={{ color: p.text3 }}>Empty skill directory.</div>
-              ) : (
-                <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
-                  {detail.files.map((file, index) => (
-                    <div key={file.name} style={{
-                      display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 78px 70px 92px',
-                      gap: 10, alignItems: 'center', padding: '8px 10px',
-                      borderBottom: index < detail.files.length - 1 ? '1px solid ' + p.lineSoft : 'none',
-                      background: index % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.015)',
-                    }}>
-                      <div title={file.name} style={{ color: p.text, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.name}</div>
-                      <div style={{ color: p.text3 }}>{file.kind}</div>
-                      <div style={{ color: p.text3, textAlign: 'right' }}>{file.size || '--'}</div>
-                      <div style={{ color: p.text3, textAlign: 'right', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{file.modified || '--'}</div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </>
-          ) : (
-            <div style={{ color: p.text3 }}>File details unavailable.</div>
-          )}
-        </div>
-      </Section>
-
-    </div>
-  );
-}
-
-// ─── Segmented control (Settings) ─────────────────────────────────
-function Segmented<T extends string>({ value, options, onChange, p }: {
-  value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; p: Palette;
-}) {
-  return (
-    <div style={{ display: 'inline-flex', background: 'rgba(0,0,0,0.05)', borderRadius: 6, padding: 2 }}>
-      {options.map((o) => {
-        const selected = value === o.value;
-        return (
-          <button key={o.value} onClick={() => onChange(o.value)}
-            style={{
-              border: 0, background: selected ? p.panel : 'transparent', cursor: 'pointer',
-              borderRadius: 4, padding: '4px 12px', fontSize: 12, color: p.text, fontFamily: FONT_SANS,
-              fontWeight: selected ? 500 : 400,
-              boxShadow: selected ? '0 1px 2px rgba(0,0,0,0.08)' : 'none',
-            }}>{o.label}</button>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Settings ─────────────────────────────────────────────────────
-function SettingsPane({ p, platforms, config, setConfig, apiKeyConfigured, apiKeyPending, aiTestPending, aiTest, onSaveApiKey, onClearApiKey, onTestAi, onRegenerateAllSummaries, regenerateAllPending, onInitialize, initializePending }: {
-  p: Palette; platforms: Platform[]; config: Config; setConfig: (patch: Partial<Config>) => Promise<void>;
-  apiKeyConfigured: boolean; apiKeyPending: boolean; aiTestPending: boolean; aiTest: AiTestState;
-  onSaveApiKey: (key: string) => Promise<boolean>; onClearApiKey: () => Promise<boolean>; onTestAi: () => Promise<void>; onRegenerateAllSummaries: () => Promise<void>; regenerateAllPending: boolean;
-  onInitialize: () => void; initializePending: boolean;
-}) {
-  const [apiKey, setApiKey] = useState('');
-  const [apiKeyMessage, setApiKeyMessage] = useState<AiTestState>(null);
-  const [aiEndpoint, setAiEndpoint] = useState(config.aiEndpoint);
-  const [aiModel, setAiModel] = useState(config.aiModel);
-  useEffect(() => {
-    setAiEndpoint(config.aiEndpoint);
-    setAiModel(config.aiModel);
-  }, [config.aiEndpoint, config.aiModel]);
-  const toggleHidden = (id: string) => {
-    const isHidden = config.hiddenPlatforms.includes(id);
-    setConfig({
-      hiddenPlatforms: isHidden
-        ? config.hiddenPlatforms.filter((x) => x !== id)
-        : [...config.hiddenPlatforms, id],
-    });
-  };
-  const changeAiProvider = (provider: AiProvider) => {
-    const preset = AI_PRESETS[provider];
-    setAiEndpoint(preset.endpoint);
-    setAiModel(preset.model);
-    setConfig({ aiProvider: provider, aiEndpoint: preset.endpoint, aiModel: preset.model });
-  };
-  useEffect(() => {
-    const endpoint = aiEndpoint.trim();
-    const model = aiModel.trim();
-    if (endpoint === config.aiEndpoint && model === config.aiModel) return;
-    const timeout = window.setTimeout(() => {
-      setConfig({ aiEndpoint: endpoint, aiModel: model });
-    }, 500);
-    return () => window.clearTimeout(timeout);
-  }, [aiEndpoint, aiModel, config.aiEndpoint, config.aiModel, setConfig]);
-  const testCurrentAiConfig = async () => {
-    await setConfig({ aiEndpoint: aiEndpoint.trim(), aiModel: aiModel.trim() });
-    await onTestAi();
-  };
-  const saveCurrentApiKey = async () => {
-    setApiKeyMessage(null);
-    const saved = await onSaveApiKey(apiKey);
-    if (saved) {
-      setApiKey('');
-      setApiKeyMessage({ tone: 'info', message: 'API key saved securely in macOS Keychain.' });
-    } else {
-      setApiKeyMessage({ tone: 'error', message: 'API key was not saved. Check the key and Keychain permission.' });
-    }
-  };
-  const clearCurrentApiKey = async () => {
-    setApiKeyMessage(null);
-    const cleared = await onClearApiKey();
-    setApiKeyMessage(cleared
-      ? { tone: 'info', message: 'Saved API key cleared.' }
-      : { tone: 'error', message: 'API key could not be cleared.' });
-  };
-
-  return (
-    <div style={{ flex: 1, overflowY: 'auto', background: p.panel }}>
-      <div data-tauri-drag-region style={{ height: 28, flexShrink: 0 }} />
-      <div style={{ padding: '4px 40px 32px' }}>
-        <div style={{ fontSize: 22, fontWeight: 600, color: p.text, letterSpacing: -0.3 }}>Settings</div>
-        <div style={{ fontSize: 13, color: p.text2, marginTop: 4, marginBottom: 24 }}>
-          Manage appearance and which platforms appear in the sidebar.
-        </div>
-
-        {/* Appearance */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>Appearance</div>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-            {PALETTE_KEYS.map((key) => {
-              const pal = PALETTES[key];
-              const swatches = PALETTE_OPTIONS[PALETTE_KEYS.indexOf(key)];
-              const selected = config.palette === key;
-              return (
-                <button key={key} onClick={() => setConfig({ palette: key })}
-                  style={{
-                    border: '1px solid ' + (selected ? pal.accent : p.line),
-                    background: pal.panel, borderRadius: 10, padding: 0, cursor: 'pointer',
-                    textAlign: 'left', overflow: 'hidden', fontFamily: FONT_SANS,
-                    boxShadow: selected ? '0 0 0 2px ' + pal.accentSoft : 'none',
-                    transition: 'box-shadow 0.15s, border-color 0.15s',
-                  }}>
-                  <div style={{ height: 80, background: pal.sidebarFlat, position: 'relative', display: 'flex' }}>
-                    <div style={{ width: 28, height: '100%', background: pal.sidebarFlat, borderRight: '1px solid ' + pal.line, display: 'flex', flexDirection: 'column', alignItems: 'center', paddingTop: 8, gap: 4 }}>
-                      <div style={{ width: 4, height: 4, borderRadius: 2, background: pal.hub }} />
-                      <div style={{ width: 4, height: 4, borderRadius: 2, background: pal.accent }} />
-                      <div style={{ width: 4, height: 4, borderRadius: 2, background: pal.text3 }} />
-                    </div>
-                    <div style={{ flex: 1, padding: '8px 10px', background: pal.panel }}>
-                      <div style={{ height: 5, width: '60%', background: pal.text, borderRadius: 2, opacity: 0.85 }} />
-                      <div style={{ height: 4, width: '80%', background: pal.text2, borderRadius: 2, marginTop: 4, opacity: 0.5 }} />
-                      <div style={{ display: 'flex', gap: 3, marginTop: 6 }}>
-                        <span style={{ width: 16, height: 5, background: pal.hubSoft, borderRadius: 2 }} />
-                        <span style={{ width: 16, height: 5, background: pal.accentSoft, borderRadius: 2 }} />
-                      </div>
-                    </div>
-                    {selected && (
-                      <div style={{ position: 'absolute', top: 6, right: 6, width: 16, height: 16, borderRadius: 8, background: pal.accent, color: '#fff', display: 'grid', placeItems: 'center', fontSize: 10, fontWeight: 700 }}>✓</div>
-                    )}
-                  </div>
-                  <div style={{ padding: '10px 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, borderTop: '1px solid ' + pal.lineSoft }}>
-                    <div>
-                      <div style={{ fontSize: 12, fontWeight: 600, color: pal.text }}>{pal.name.split(' · ')[0]}</div>
-                      <div style={{ fontSize: 10, color: pal.text3, marginTop: 1 }}>{pal.name.split(' · ')[1]}</div>
-                    </div>
-                    <div style={{ display: 'flex', gap: 2 }}>
-                      {swatches.map((c, i) => (
-                        <span key={i} style={{ width: 10, height: 10, borderRadius: 5, background: c, boxShadow: 'inset 0 0 0 .5px rgba(0,0,0,0.1)' }} />
-                      ))}
-                    </div>
-                  </div>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Preferences */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>Preferences</div>
-          <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>List density</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Tighter rows show more skills at once.</div>
-              </div>
-              <Segmented value={config.density} onChange={(v) => setConfig({ density: v })} p={p}
-                options={[{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }]} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Default view</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Switchable any time from the list header.</div>
-              </div>
-              <Segmented value={config.view} onChange={(v) => setConfig({ view: v })} p={p}
-                options={[{ value: 'list', label: 'List' }, { value: 'grid', label: 'Grid' }]} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Regenerate all summaries</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Replace every local or previous summary with a fresh AI response.</div>
-              </div>
-              <button onClick={onRegenerateAllSummaries} disabled={regenerateAllPending || !apiKeyConfigured} style={{
-                border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: regenerateAllPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: regenerateAllPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>{regenerateAllPending ? 'Generating…' : 'Regenerate all'}</button>
-            </div>
-          </div>
-        </div>
-
-        {/* Repository */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>Repository</div>
-          <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Initialize central repository</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Scan every known platform folder and preview safe migrations.</div>
-              </div>
-              <button onClick={onInitialize} disabled={initializePending} style={{
-                border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: initializePending ? 'not-allowed' : 'pointer',
-                opacity: initializePending ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>{initializePending ? 'Scanning' : 'Scan folders'}</button>
-            </div>
-          </div>
-        </div>
-
-        {/* AI */}
-        <div style={{ marginBottom: 32 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>AI</div>
-          <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Provider protocol</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Choose the request/response shape for summaries.</div>
-              </div>
-              <Segmented<AiProvider> value={config.aiProvider} onChange={changeAiProvider} p={p}
-                options={[{ value: 'anthropic', label: 'Anthropic' }, { value: 'chat', label: 'Chat' }]} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
-              <div>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Endpoint</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Full URL, saved automatically after editing.</div>
-              </div>
-              <input value={aiEndpoint} onChange={(e) => setAiEndpoint(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].endpoint}
-                style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'center', padding: '12px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
-              <div>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Model</div>
-                <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Used for testing and summary regeneration.</div>
-              </div>
-              <input value={aiModel} onChange={(e) => setAiModel(e.target.value)} placeholder={AI_PRESETS[config.aiProvider].model}
-                style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 11, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px' }}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>API key</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, color: apiKeyConfigured ? p.hubText : p.text3, marginTop: 2 }}>
-                  <span style={{ width: 6, height: 6, borderRadius: 3, background: apiKeyConfigured ? p.hub : p.text3, display: 'inline-block' }} />
-                  {apiKeyConfigured ? 'Saved securely in macOS Keychain.' : 'No key saved. Save one to use AI summaries.'}
-                </div>
-              </div>
-              <input value={apiKey} disabled={apiKeyPending} type="password" inputMode="text" lang="en" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-                onChange={(e) => setApiKey(e.target.value)} placeholder="Paste API key"
-                style={{ width: 220, boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '6px 9px', fontSize: 12, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-              <button onClick={saveCurrentApiKey} disabled={apiKeyPending || !apiKey.trim()} style={{
-                border: 0, background: p.accent, color: '#fff', borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: apiKeyPending || !apiKey.trim() ? 'not-allowed' : 'pointer',
-                opacity: apiKeyPending || !apiKey.trim() ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>{apiKeyPending ? 'Saving' : 'Save securely'}</button>
-              <button onClick={clearCurrentApiKey} disabled={apiKeyPending || !apiKeyConfigured} style={{
-                border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: apiKeyPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: apiKeyPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>Clear</button>
-              <button onClick={testCurrentAiConfig} disabled={apiKeyPending || aiTestPending || !apiKeyConfigured} style={{
-                border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6, padding: '6px 12px',
-                fontSize: 12, cursor: apiKeyPending || aiTestPending || !apiKeyConfigured ? 'not-allowed' : 'pointer',
-                opacity: apiKeyPending || aiTestPending || !apiKeyConfigured ? 0.55 : 1, fontFamily: FONT_SANS,
-              }}>{aiTestPending ? 'Testing' : 'Test'}</button>
-            </div>
-            {apiKeyMessage && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'start', padding: '10px 14px', borderTop: '1px solid ' + p.lineSoft }}>
-                <div />
-                <div style={{
-                  color: apiKeyMessage.tone === 'info' ? p.hubText : p.danger,
-                  fontSize: 11, lineHeight: 1.5,
-                }}>{apiKeyMessage.message}</div>
-              </div>
-            )}
-            {aiTest && (
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr minmax(320px, 1.2fr)', gap: 10, alignItems: 'start', padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
-                <div>
-                  <div style={{ fontSize: 13, color: p.text, fontWeight: 500 }}>Test result</div>
-                  <div style={{ fontSize: 11, color: p.text3, marginTop: 2 }}>Latest connection check.</div>
-                </div>
-                <div style={{
-                  border: '1px solid ' + (aiTest.tone === 'info' ? p.hubSoft : 'rgba(255,59,48,0.22)'),
-                  background: aiTest.tone === 'info' ? 'rgba(52,199,89,0.08)' : 'rgba(255,59,48,0.06)',
-                  color: aiTest.tone === 'info' ? p.hubText : p.danger,
-                  borderRadius: 6, padding: '7px 9px', fontSize: 11, lineHeight: 1.5,
-                }}>{aiTest.message}</div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Platforms */}
-        <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 12 }}>Platforms</div>
-        <div style={{ fontSize: 12, color: p.text2, marginTop: -4, marginBottom: 16 }}>Choose which routes appear in the sidebar. Hidden platforms keep their symlinks intact — they just stay out of view.</div>
-        {(['Core', 'Coding', 'Lobster'] as const).map((group) => (
-          <div key={group} style={{ marginBottom: 24 }}>
-            <div style={{ fontSize: 11, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase', marginBottom: 8 }}>{group}</div>
-            <div style={{ border: '1px solid ' + p.line, borderRadius: 8, overflow: 'hidden' }}>
-              {platforms.filter((pl) => pl.group === group).map((pl, i, arr) => (
-                <div key={pl.id} style={{
-                  display: 'flex', alignItems: 'center', gap: 12, padding: '10px 14px',
-                  borderBottom: i < arr.length - 1 ? '1px solid ' + p.lineSoft : 'none',
-                  background: pl.isHub ? p.hubSoft : 'transparent',
-                }}>
-                  <div style={{ fontSize: 13, color: p.text, flex: 1, display: 'flex', alignItems: 'center', gap: 8 }}>
-                    {pl.name}
-                    {pl.isHub && <span style={{ fontSize: 9, color: p.hubText, background: '#fff', padding: '1px 5px', borderRadius: 3, fontWeight: 700 }}>HUB</span>}
-                  </div>
-                  <div style={{ fontSize: 11, color: p.text3, fontFamily: MONO }}>{pl.path}</div>
-                  <Toggle on={!config.hiddenPlatforms.includes(pl.id)} disabled={pl.isHub}
-                    onClick={() => !pl.isHub && toggleHidden(pl.id)} p={p} />
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ─── Import modal ─────────────────────────────────────────────────
-function ImportModal({ open, onClose, onAdd, pending, p }: {
-  open: boolean; onClose: () => void; onAdd: (name: string, tagline: string) => void; pending: boolean; p: Palette;
-}) {
-  const [name, setName] = useState('');
-  const [tagline, setTagline] = useState('');
-  if (!open) return null;
-  return (
-    <div onClick={() => { if (!pending) onClose(); }} style={{
-      position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 10,
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        width: 440, background: p.panel, borderRadius: 12, padding: 24, boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
-      }}>
-        <div style={{ fontSize: 17, fontWeight: 600, color: p.text }}>Import new skill</div>
-        <div style={{ fontSize: 12, color: p.text2, marginTop: 4 }}>Add a SKILL.md and friends to Central. Routes can be set after.</div>
-
-        <div style={{ marginTop: 18 }}>
-          <div style={{ fontSize: 11, color: p.text2, marginBottom: 4 }}>Skill name</div>
-          <input value={name} disabled={pending} onChange={(e) => setName(e.target.value)} placeholder="e.g. csv-cleaner"
-            style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: MONO, outline: 'none', color: p.text, background: p.panel }} />
-        </div>
-        <div style={{ marginTop: 12 }}>
-          <div style={{ fontSize: 11, color: p.text2, marginBottom: 4 }}>One-line description</div>
-          <input value={tagline} disabled={pending} onChange={(e) => setTagline(e.target.value)} placeholder="What does it do?"
-            style={{ width: '100%', boxSizing: 'border-box', border: '1px solid ' + p.line, borderRadius: 6, padding: '7px 10px', fontSize: 13, fontFamily: FONT_SANS, outline: 'none', color: p.text, background: p.panel }} />
-        </div>
-        <div style={{ marginTop: 14, fontSize: 11, color: p.text3, fontFamily: MONO, padding: '8px 10px', background: 'rgba(0,0,0,0.04)', borderRadius: 6 }}>
-          Will be written to ~/.skilldock/skills/{name || '…'}/
-        </div>
-
-        <div style={{ display: 'flex', gap: 8, marginTop: 20, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} disabled={pending} style={{
-            border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6,
-            padding: '6px 14px', fontSize: 13, cursor: pending ? 'not-allowed' : 'pointer', fontFamily: FONT_SANS,
-            opacity: pending ? 0.6 : 1,
-          }}>Cancel</button>
-          <button onClick={() => { onAdd(name, tagline); if (!pending) { setName(''); setTagline(''); } }} disabled={!name || pending}
-            style={{
-              border: 0, background: p.accent, color: '#fff', borderRadius: 6,
-              padding: '6px 14px', fontSize: 13, cursor: name && !pending ? 'pointer' : 'not-allowed',
-              fontFamily: FONT_SANS, fontWeight: 500, opacity: name && !pending ? 1 : 0.5,
-            }}>{pending ? 'Adding' : 'Add skill'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Repository init modal ────────────────────────────────────────
-function InitRepositoryModal({ open, preview, result, selected, scanPending, runPending, onClose, onRefresh, onRun, onToggle, onToggleAll, p }: {
-  open: boolean;
-  preview: InitPreview | null;
-  result: InitResult | null;
-  selected: Record<string, boolean>;
-  scanPending: boolean;
-  runPending: boolean;
-  onClose: () => void;
-  onRefresh: () => void;
-  onRun: () => void;
-  onToggle: (key: string, checked: boolean) => void;
-  onToggleAll: (checked: boolean) => void;
-  p: Palette;
-}) {
-  const [showSkipped, setShowSkipped] = useState(false);
-  useEffect(() => {
-    if (open) setShowSkipped(false);
-  }, [open, preview]);
-  if (!open) return null;
-
-  const items = preview?.items ?? [];
-  const visibleItems = showSkipped ? items : items.filter((item) => item.action !== 'skipInvalid');
-  const hiddenSkippedCount = items.length - visibleItems.length;
-  const selectableItems = items.filter((item) => isInitActionSelectable(item.action));
-  const bulkSelectableItems = items.filter((item) => isInitActionBulkSelectable(item.action));
-  const selectedCount = selectableItems.filter((item) => selected[item.key]).length;
-  const allSelected = bulkSelectableItems.length > 0 && bulkSelectableItems.every((item) => selected[item.key]);
-  const busy = scanPending || runPending;
-
-  const actionTone = (action: InitAction) => {
-    if (action === 'migrateToCentral') return { color: p.hubText, bg: p.hubSoft, border: p.hubSoft };
-    if (action === 'linkExistingCentral' || action === 'linkPlannedCentral') return { color: p.text, bg: p.accentSoft, border: p.accentSoft };
-    if (action === 'resolveConflictSource') return { color: p.danger, bg: 'rgba(255,59,48,0.08)', border: 'rgba(255,59,48,0.18)' };
-    if (action === 'skipConflict') return { color: p.danger, bg: 'rgba(255,59,48,0.08)', border: 'rgba(255,59,48,0.18)' };
-    return { color: p.text3, bg: 'rgba(0,0,0,0.04)', border: p.lineSoft };
-  };
-
-  return (
-    <div onClick={() => { if (!busy) onClose(); }} style={{
-      position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.35)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 12,
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        width: 820, maxWidth: 'calc(100vw - 48px)', maxHeight: 'calc(100vh - 64px)',
-        background: p.panel, borderRadius: 12, boxShadow: '0 22px 70px rgba(0,0,0,0.32)',
-        display: 'flex', flexDirection: 'column', overflow: 'hidden',
-      }}>
-        <div style={{ padding: '20px 22px 14px', borderBottom: '1px solid ' + p.lineSoft }}>
-          <div style={{ display: 'flex', alignItems: 'flex-start', gap: 16 }}>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 18, fontWeight: 600, color: p.text }}>Initialize central repository</div>
-              <div style={{ fontSize: 12, color: p.text2, marginTop: 4 }}>
-                Scans all known platform folders, backs up real skill directories, then replaces them with central routes.
-              </div>
-            </div>
-            {preview && (
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {[
-                  ['Ready', preview.summary.migratable, p.hubText, p.hubSoft],
-                  ['Routed', preview.summary.alreadyRouted, p.text2, 'rgba(0,0,0,0.04)'],
-                  ['Conflicts', preview.summary.conflicts, p.danger, 'rgba(255,59,48,0.08)'],
-                  ['Skipped', preview.summary.skipped, p.text3, 'rgba(0,0,0,0.04)'],
-                ].map(([label, count, color, bg]) => (
-                  <span key={String(label)} style={{
-                    fontSize: 10, color: String(color), background: String(bg), borderRadius: 10,
-                    padding: '3px 7px', fontFamily: MONO,
-                  }}>{label} {count}</span>
-                ))}
-              </div>
-            )}
-          </div>
-          {preview && (
-            <div style={{ marginTop: 12, fontSize: 11, color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              Central: {preview.centralPath}
-            </div>
-          )}
-        </div>
-
-        <div style={{ flex: 1, minHeight: 260, overflow: 'auto' }}>
-          {scanPending && !preview ? (
-            <div style={{ height: 260, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>Scanning platform folders…</div>
-          ) : visibleItems.length === 0 ? (
-            <div style={{ height: 260, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>
-              {hiddenSkippedCount > 0 ? `${hiddenSkippedCount} skipped item(s) hidden.` : 'No existing platform skills found.'}
-            </div>
-          ) : (
-            <div>
-              <div style={{
-                display: 'grid', gridTemplateColumns: '34px minmax(140px, 1fr) 110px 118px minmax(210px, 1.4fr)',
-                gap: 10, alignItems: 'center', padding: '9px 14px',
-                borderBottom: '1px solid ' + p.line, background: p.panel,
-                position: 'sticky', top: 0, zIndex: 1,
-              }}>
-                <input type="checkbox" checked={allSelected} disabled={bulkSelectableItems.length === 0 || busy}
-                  onChange={(event) => onToggleAll(event.target.checked)} />
-                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Skill</div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Source</div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Action</div>
-                <div style={{ fontSize: 10, fontWeight: 700, color: p.text3, letterSpacing: 0.4, textTransform: 'uppercase' }}>Path / note</div>
-              </div>
-              {visibleItems.map((item, index) => {
-                const canSelect = isInitActionSelectable(item.action);
-                const selectedForRun = Boolean(selected[item.key]) && canSelect;
-                const tone = actionTone(item.action);
-                return (
-                  <div key={item.key} style={{
-                    display: 'grid', gridTemplateColumns: '34px minmax(140px, 1fr) 110px 118px minmax(210px, 1.4fr)',
-                    gap: 10, alignItems: 'center', padding: '10px 14px',
-                    borderBottom: index < items.length - 1 ? '1px solid ' + p.lineSoft : 'none',
-                    background: index % 2 === 0 ? 'transparent' : 'rgba(0,0,0,0.012)',
-                    opacity: canSelect || item.action === 'alreadyRouted' ? 1 : 0.82,
-                  }}>
-                    <input type="checkbox" disabled={!canSelect || busy} checked={selectedForRun}
-                      onChange={(event) => onToggle(item.key, event.target.checked)} />
-                    <div style={{ minWidth: 0 }}>
-                      <div title={item.title} style={{ fontSize: 13, color: p.text, fontWeight: 500, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title}</div>
-                      <div style={{ fontSize: 10, color: p.text3, fontFamily: MONO, marginTop: 2 }}>{item.id}</div>
-                    </div>
-                    <div style={{ minWidth: 0 }}>
-                      <div style={{ fontSize: 12, color: p.text2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.platformName}</div>
-                      <div style={{ fontSize: 10, color: p.text3, fontFamily: MONO, marginTop: 2 }}>{item.platformId}{item.sourceIsSymlink ? ' · symlink' : ''}</div>
-                    </div>
-                    <span style={{
-                      width: 'fit-content', maxWidth: '100%', fontSize: 10, color: tone.color,
-                      background: item.action === 'resolveConflictSource' && selectedForRun ? p.hubSoft : tone.bg,
-                      border: '1px solid ' + (item.action === 'resolveConflictSource' && selectedForRun ? p.hubSoft : tone.border),
-                      borderRadius: 10,
-                      padding: '2px 7px', fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                    }}>{item.action === 'resolveConflictSource' && selectedForRun ? 'Use source' : INIT_ACTION_LABELS[item.action]}</span>
-                    <div style={{ minWidth: 0 }}>
-                      <div title={item.sourcePath} style={{ fontSize: 10, color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.sourcePath}</div>
-                      {item.message && (
-                        <div title={item.message} style={{ fontSize: 11, color: (item.action === 'skipConflict' || item.action === 'resolveConflictSource') ? (selectedForRun ? p.hubText : p.danger) : p.text2, marginTop: 3, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.message}</div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </div>
-
-        {result && (
-          <div style={{ borderTop: '1px solid ' + p.lineSoft, padding: '10px 14px', background: 'rgba(0,0,0,0.018)' }}>
-            <div style={{ display: 'flex', gap: 10, alignItems: 'center', fontSize: 12 }}>
-              <span style={{ color: result.failed ? p.danger : p.hubText, fontWeight: 600 }}>
-                {result.completed} completed · {result.failed} failed
-              </span>
-              <span style={{ color: p.text3, fontFamily: MONO, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                Backup: {result.backupRoot}
-              </span>
-            </div>
-            {result.items.some((item) => item.message) && (
-              <div style={{ marginTop: 6, color: p.danger, fontSize: 11, lineHeight: 1.45 }}>
-                {result.items.filter((item) => item.message).slice(0, 2).map((item) => `${item.platformId}/${item.id}: ${item.message}`).join(' · ')}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '12px 14px', borderTop: '1px solid ' + p.lineSoft }}>
-          <div style={{ fontSize: 12, color: p.text3, flex: 1 }}>
-            {selectedCount} selected for migration
-          </div>
-          {hiddenSkippedCount > 0 && (
-            <button onClick={() => setShowSkipped((value) => !value)} disabled={busy} style={{
-              border: '1px solid ' + p.line, background: showSkipped ? 'rgba(0,0,0,0.04)' : p.panel,
-              color: p.text, borderRadius: 6, padding: '6px 12px',
-              fontSize: 12, cursor: busy ? 'not-allowed' : 'pointer',
-              opacity: busy ? 0.6 : 1, fontFamily: FONT_SANS,
-            }}>{showSkipped ? 'Hide skipped' : `Show skipped ${hiddenSkippedCount}`}</button>
-          )}
-          <button onClick={onRefresh} disabled={busy} style={{
-            border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6,
-            padding: '6px 12px', fontSize: 12, cursor: busy ? 'not-allowed' : 'pointer',
-            opacity: busy ? 0.6 : 1, fontFamily: FONT_SANS,
-          }}>{scanPending ? 'Scanning' : 'Rescan'}</button>
-          <button onClick={onClose} disabled={runPending} style={{
-            border: '1px solid ' + p.line, background: p.panel, color: p.text, borderRadius: 6,
-            padding: '6px 12px', fontSize: 12, cursor: runPending ? 'not-allowed' : 'pointer',
-            opacity: runPending ? 0.6 : 1, fontFamily: FONT_SANS,
-          }}>{result ? 'Close' : 'Cancel'}</button>
-          <button onClick={onRun} disabled={busy || selectedCount === 0} style={{
-            border: 0, background: p.accent, color: '#fff', borderRadius: 6,
-            padding: '6px 13px', fontSize: 12, fontWeight: 500,
-            cursor: busy || selectedCount === 0 ? 'not-allowed' : 'pointer',
-            opacity: busy || selectedCount === 0 ? 0.55 : 1, fontFamily: FONT_SANS,
-          }}>{runPending ? 'Initializing' : 'Initialize selected'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── App ──────────────────────────────────────────────────────────
-const DEFAULT_CONFIG: Config = {
-  palette: 'cool', density: 'comfortable', view: 'list',
-  hiddenPlatforms: ['cursor', 'gemini', 'copilot', 'windsurf', 'aider', 'qclaw', 'easyclaw', 'workbuddy'],
-  aiProvider: 'anthropic',
-  aiEndpoint: AI_PRESETS.anthropic.endpoint,
-  aiModel: AI_PRESETS.anthropic.model,
-};
+const DEFAULT_CONFIG: Config = { palette: 'cool', density: 'comfortable', view: 'list' };
 
 export default function App() {
   useFontLink();
 
-  const [platforms, setPlatforms] = useState<Platform[]>([]);
-  const [skills, setSkills] = useState<Skill[]>([]);
+  const [overview, setOverview] = useState<Overview | null>(null);
   const [details, setDetails] = useState<Record<string, SkillDetail>>({});
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
-  const [summaries, setSummaries] = useState<Record<string, string>>({});
-  const [summaryCacheLoaded, setSummaryCacheLoaded] = useState<Record<string, boolean>>({});
-  const [summaryPendingId, setSummaryPendingId] = useState<string | null>(null);
-  const [regenerateAllPending, setRegenerateAllPending] = useState(false);
-  const [summaryErrors, setSummaryErrors] = useState<Record<string, string>>({});
+  const [findings, setFindings] = useState<Finding[]>([]);
+  const [doctorLoading, setDoctorLoading] = useState(false);
   const [config, setConfigState] = useState<Config>(DEFAULT_CONFIG);
   const [loading, setLoading] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [notice, setNotice] = useState<AppNotice | null>(null);
-  const [scanPending, setScanPending] = useState(false);
-  const [routePending, setRoutePending] = useState<string | null>(null);
-  const [deletePending, setDeletePending] = useState(false);
-  const [importPending, setImportPending] = useState(false);
-  const [apiKeyConfigured, setApiKeyConfigured] = useState(false);
-  const [apiKeyPending, setApiKeyPending] = useState(false);
-  const [aiTestPending, setAiTestPending] = useState(false);
-  const [aiTest, setAiTest] = useState<AiTestState>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const [pending, setPending] = useState<string | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [newPending, setNewPending] = useState(false);
 
-  const [active, setActive] = useState('central');
+  const [active, setActive] = useState<ViewKey>('all');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [gridDetailOpen, setGridDetailOpen] = useState(false);
   const [q, setQ] = useState('');
-  const [importOpen, setImportOpen] = useState(false);
-  const [initOpen, setInitOpen] = useState(false);
-  const [initPreview, setInitPreview] = useState<InitPreview | null>(null);
-  const [initResult, setInitResult] = useState<InitResult | null>(null);
-  const [initSelected, setInitSelected] = useState<Record<string, boolean>>({});
-  const [initScanPending, setInitScanPending] = useState(false);
-  const [initRunPending, setInitRunPending] = useState(false);
 
   const p = PALETTES[config.palette];
+  const skills = overview?.skills ?? [];
+  const agents = overview?.agents ?? [];
 
   const showNotice = useCallback((message: string, tone: NoticeTone = 'error') => {
     setNotice({ id: Date.now(), tone, message });
@@ -1219,405 +47,159 @@ export default function App() {
 
   useEffect(() => {
     if (!notice) return;
-    const timeout = window.setTimeout(() => setNotice(null), 5000);
+    const timeout = window.setTimeout(() => setNotice(null), notice.tone === 'error' ? 8000 : 5000);
     return () => window.clearTimeout(timeout);
   }, [notice]);
 
-  const refreshSkills = useCallback(async () => {
-    setScanPending(true);
-    try {
-      const next = await api.scanSkills();
-      setSkills(next);
-      setSelectedId((current) => {
-        if (current && next.some((skill) => skill.id === current)) return current;
-        return next[0]?.id ?? null;
-      });
-    }
-    catch (e) {
-      console.error('scanSkills failed', e);
-      showNotice('Scan failed: ' + e);
-    } finally {
-      setScanPending(false);
-    }
+  const runDoctor = useCallback(async () => {
+    setDoctorLoading(true);
+    try { setFindings(await api.runDoctor()); }
+    catch (e) { showNotice('Doctor failed: ' + e); }
+    finally { setDoctorLoading(false); }
   }, [showNotice]);
 
-  // Boot
+  const refresh = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      const next = await api.getOverview();
+      setOverview(next);
+      setDetails({});
+      setSelectedId((current) => (current && next.skills.some((s) => s.id === current) ? current : next.skills[0]?.id ?? null));
+      void runDoctor();
+    } catch (e) {
+      console.error('getOverview failed', e);
+      showNotice(String(e));
+      throw e;
+    } finally {
+      setRefreshing(false);
+    }
+  }, [runDoctor, showNotice]);
+
   useEffect(() => {
     (async () => {
       try {
-        const [pls, cfg, keyStatus] = await Promise.all([
-          api.listPlatforms(),
-          api.getConfig(),
-          api.getApiKeyStatus(),
-        ]);
-        setPlatforms(pls);
-        setConfigState(cfg);
-        setApiKeyConfigured(keyStatus.configured);
-        await refreshSkills();
+        setConfigState(await api.getConfig());
+        await refresh();
       } catch (e) {
-        console.error(e);
         setBootError(String(e));
       } finally {
         setLoading(false);
       }
     })();
-  }, [refreshSkills]);
+  }, [refresh]);
 
   useEffect(() => {
     let cancelled = false;
     let unlisten: (() => void) | null = null;
-
-    listen('skills-changed', () => {
-      refreshSkills();
-    })
-      .then((cleanup) => {
-        if (cancelled) cleanup();
-        else unlisten = cleanup;
-      })
-      .catch((e) => {
-        console.error('skills-changed listener failed', e);
-        showNotice('File watcher listener failed: ' + e);
-      });
-
-    return () => {
-      cancelled = true;
-      if (unlisten) unlisten();
-    };
-  }, [refreshSkills, showNotice]);
+    listen('skills-changed', () => { refresh().catch(() => {}); })
+      .then((cleanup) => { if (cancelled) cleanup(); else unlisten = cleanup; })
+      .catch((e) => showNotice('File watcher listener failed: ' + e));
+    return () => { cancelled = true; if (unlisten) unlisten(); };
+  }, [refresh, showNotice]);
 
   const setConfig = useCallback(async (patch: Partial<Config>) => {
     setConfigState((c) => ({ ...c, ...patch }));
-    try { const next = await api.updateConfig(patch); setConfigState(next); }
-    catch (e) {
-      console.error('updateConfig failed', e);
-      showNotice('Settings save failed: ' + e);
-    }
+    try { setConfigState(await api.updateConfig(patch)); }
+    catch (e) { showNotice('Settings save failed: ' + e); }
   }, [showNotice]);
 
-  useEffect(() => {
-    setAiTest(null);
-  }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
-
-  useEffect(() => {
-    setSummaries({});
-    setSummaryCacheLoaded({});
-    setSummaryErrors({});
-  }, [config.aiProvider, config.aiEndpoint, config.aiModel]);
-
-  const saveApiKey = useCallback(async (key: string) => {
-    const trimmed = key.trim();
-    if (!trimmed || apiKeyPending) return false;
-    setApiKeyPending(true);
-    try {
-      const status = await api.setApiKey(trimmed);
-      setApiKeyConfigured(status.configured);
-      setAiTest(null);
-      showNotice('API key saved securely in macOS Keychain.', 'info');
-      return status.configured;
-    } catch (e) {
-      console.error('setApiKey failed', e);
-      showNotice('API key save failed: ' + e);
-      return false;
-    } finally {
-      setApiKeyPending(false);
-    }
-  }, [apiKeyPending, showNotice]);
-
-  const clearApiKey = useCallback(async () => {
-    if (apiKeyPending) return false;
-    setApiKeyPending(true);
-    try {
-      const status = await api.clearApiKey();
-      setApiKeyConfigured(status.configured);
-      setAiTest(null);
-      showNotice('Saved API key cleared.', 'info');
-      return !status.configured;
-    } catch (e) {
-      console.error('clearApiKey failed', e);
-      showNotice('API key clear failed: ' + e);
-      return false;
-    } finally {
-      setApiKeyPending(false);
-    }
-  }, [apiKeyPending, showNotice]);
-
-  const testAiConfig = useCallback(async () => {
-    if (aiTestPending) return;
-    setAiTestPending(true);
-    setAiTest(null);
-    try {
-      const result = await api.testAiConfig();
-      setAiTest({
-        tone: 'info',
-        message: `${result.provider} / ${result.model}: ${result.response}`,
-      });
-      showNotice('AI connection test succeeded.', 'info');
-    } catch (e) {
-      console.error('testAiConfig failed', e);
-      setAiTest({ tone: 'error', message: String(e) });
-      showNotice('AI connection test failed: ' + e);
-    } finally {
-      setAiTestPending(false);
-    }
-  }, [aiTestPending, showNotice]);
-
-  const loadInitPreview = useCallback(async (clearResult = true) => {
-    if (initScanPending) return;
-    setInitScanPending(true);
-    if (clearResult) setInitResult(null);
-    try {
-      const preview = await api.previewRepositoryInit();
-      setInitPreview(preview);
-      const nextSelected: Record<string, boolean> = {};
-      preview.items.forEach((item) => {
-        if (isInitActionSelectable(item.action)) nextSelected[item.key] = item.selected;
-      });
-      setInitSelected(nextSelected);
-    } catch (e) {
-      console.error('previewRepositoryInit failed', e);
-      showNotice('Repository scan failed: ' + e);
-    } finally {
-      setInitScanPending(false);
-    }
-  }, [initScanPending, showNotice]);
-
-  const openInitRepository = useCallback(() => {
-    setInitOpen(true);
-    void loadInitPreview();
-  }, [loadInitPreview]);
-
-  const toggleInitItem = useCallback((key: string, checked: boolean) => {
-    setInitSelected((current) => {
-      const next = { ...current, [key]: checked };
-      const item = initPreview?.items.find((candidate) => candidate.key === key);
-      if (checked && item?.action === 'resolveConflictSource') {
-        initPreview?.items.forEach((candidate) => {
-          if (
-            candidate.id === item.id &&
-            candidate.key !== item.key &&
-            candidate.action === 'resolveConflictSource'
-          ) {
-            next[candidate.key] = false;
-          }
-        });
-      }
-      return next;
-    });
-  }, [initPreview]);
-
-  const toggleAllInitItems = useCallback((checked: boolean) => {
-    setInitSelected((current) => {
-      const next = { ...current };
-      initPreview?.items.forEach((item) => {
-        if (isInitActionBulkSelectable(item.action)) next[item.key] = checked;
-      });
-      return next;
-    });
-  }, [initPreview]);
-
-  const runInitRepository = useCallback(async () => {
-    if (initRunPending) return;
-    const selectedKeys = Object.entries(initSelected)
-      .filter(([, selected]) => selected)
-      .map(([key]) => key);
-    if (selectedKeys.length === 0) return;
-
-    const expectedFingerprints: Record<string, string> = {};
-    initPreview?.items.forEach((item) => {
-      if (selectedKeys.includes(item.key)) expectedFingerprints[item.key] = item.fingerprint;
-    });
-
-    setInitRunPending(true);
-    setInitResult(null);
-    try {
-      const result = await api.runRepositoryInit(selectedKeys, expectedFingerprints);
-      setInitResult(result);
-      await refreshSkills();
-      setDetails({});
-      showNotice(
-        result.failed
-          ? `Repository initialized with ${result.failed} failed item(s).`
-          : `Repository initialized: ${result.completed} item(s) migrated.`,
-        result.failed ? 'error' : 'info',
-      );
-      await loadInitPreview(false);
-    } catch (e) {
-      console.error('runRepositoryInit failed', e);
-      showNotice('Repository initialization failed: ' + e);
-    } finally {
-      setInitRunPending(false);
-    }
-  }, [initRunPending, initSelected, refreshSkills, showNotice, loadInitPreview]);
-
-  const visiblePlatforms = useMemo(
-    () => platforms.filter((pl) => !config.hiddenPlatforms.includes(pl.id)),
-    [platforms, config.hiddenPlatforms],
-  );
-
   const counts = useMemo(() => {
-    const c: Record<string, number> = {};
-    visiblePlatforms.forEach((pl) => (c[pl.id] = 0));
-    skills.forEach((s) => s.routes.forEach((r) => { if (c[r] != null) c[r]++; }));
+    const c: Record<string, number> = { all: skills.length };
+    for (const s of skills) {
+      c['state:' + s.state] = (c['state:' + s.state] ?? 0) + 1;
+      for (const a of s.agents) c['agent:' + a] = (c['agent:' + a] ?? 0) + 1;
+    }
     return c;
-  }, [skills, visiblePlatforms]);
+  }, [skills]);
+
+  const issueCount = findings.filter((f) => f.level !== 'info').length;
 
   const filtered = useMemo(() => skills.filter((s) => {
-    if (active === 'settings') return false;
-    if (!s.routes.includes(active)) return false;
-    if (q && !(s.title.toLowerCase().includes(q.toLowerCase()) || s.tagline.toLowerCase().includes(q.toLowerCase()))) return false;
+    if (active.startsWith('state:') && s.state !== active.slice(6)) return false;
+    if (active.startsWith('agent:') && !s.agents.includes(active.slice(6))) return false;
+    if (q && !(s.id.includes(q.toLowerCase()) || s.description.toLowerCase().includes(q.toLowerCase()))) return false;
     return true;
   }), [active, q, skills]);
 
   const selected = filtered.find((s) => s.id === selectedId) || filtered[0] || null;
-  const selectedDetail = selected ? details[selected.id] : undefined;
-  const selectedSummary = selected ? summaries[selected.id] : undefined;
-  const selectedSummaryLoading = selected ? summaryPendingId === selected.id : false;
-  const selectedSummaryError = selected ? summaryErrors[selected.id] ?? null : null;
 
   useEffect(() => {
     const id = selected?.id;
-    if (!id || summaries[id] || summaryCacheLoaded[id]) return;
-
-    let cancelled = false;
-    api.getCachedSummary(id)
-      .then((summary) => {
-        if (cancelled) return;
-        if (summary) setSummaries((current) => ({ ...current, [id]: summary }));
-      })
-      .catch((e) => {
-        if (!cancelled) console.error('getCachedSummary failed', e);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setSummaryCacheLoaded((current) => ({ ...current, [id]: true }));
-      });
-
-    return () => { cancelled = true; };
-  }, [selected?.id, summaries, summaryCacheLoaded]);
-
-  useEffect(() => {
-    if (config.view !== 'grid' || active === 'settings') setGridDetailOpen(false);
-  }, [active, config.view]);
-
-  useEffect(() => {
-    if (!gridDetailOpen) return;
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setGridDetailOpen(false);
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [gridDetailOpen]);
-
-  const loadSummary = useCallback(async (id: string, force = false) => {
-    setSummaryPendingId(id);
-    setSummaryErrors((current) => {
-      if (!(id in current)) return current;
-      const next = { ...current };
-      delete next[id];
-      return next;
-    });
-    try {
-      const summary = await api.generateSummary(id, force);
-      setSummaries((current) => ({ ...current, [id]: summary }));
-    } catch (e) {
-      console.error('generateSummary failed', e);
-      setSummaryErrors((current) => ({ ...current, [id]: String(e) }));
-      if (force) showNotice('Summary generation failed: ' + e);
-    } finally {
-      setSummaryPendingId((current) => current === id ? null : current);
-    }
-  }, [showNotice]);
-
-  const regenerateAllSummaries = useCallback(async () => {
-    if (regenerateAllPending || !apiKeyConfigured) return;
-    setRegenerateAllPending(true);
-    try {
-      for (const skill of skills) await loadSummary(skill.id, true);
-      showNotice('All summaries regenerated.', 'info');
-    } finally {
-      setRegenerateAllPending(false);
-    }
-  }, [apiKeyConfigured, regenerateAllPending, skills, loadSummary, showNotice]);
-
-  useEffect(() => {
-    const id = selected?.id;
-    if (!id) {
-      setDetailLoading(false);
-      setDetailError(null);
-      return;
-    }
-    if (details[id]) {
-      setDetailLoading(false);
-      setDetailError(null);
-      return;
-    }
-
+    if (!id || details[id]) { setDetailLoading(false); setDetailError(null); return; }
     let cancelled = false;
     setDetailLoading(true);
     setDetailError(null);
     api.getSkillDetail(id)
-      .then((detail) => {
-        if (cancelled) return;
-        setDetails((current) => ({ ...current, [id]: detail }));
-      })
-      .catch((e) => {
-        if (cancelled) return;
-        console.error('getSkillDetail failed', e);
-        setDetailError(String(e));
-      })
-      .finally(() => {
-        if (!cancelled) setDetailLoading(false);
-      });
-
+      .then((d) => { if (!cancelled) setDetails((cur) => ({ ...cur, [id]: d })); })
+      .catch((e) => { if (!cancelled) setDetailError(String(e)); })
+      .finally(() => { if (!cancelled) setDetailLoading(false); });
     return () => { cancelled = true; };
   }, [selected?.id, details]);
 
-  const toggleRoute = async (pid: string) => {
-    if (!selected || routePending) return;
-    const on = selected.routes.includes(pid);
-    setRoutePending(pid);
+  useEffect(() => {
+    if (config.view !== 'grid' || active === 'settings' || active === 'doctor') setGridDetailOpen(false);
+  }, [active, config.view]);
+
+  useEffect(() => {
+    if (!gridDetailOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setGridDetailOpen(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [gridDetailOpen]);
+
+  /** Run a mutating action, report its sync result, then refresh. */
+  const mutate = async (key: string, label: string, action: () => Promise<SyncResult>) => {
+    if (pending) return;
+    setPending(key);
     try {
-      if (on) await api.removeRoute(selected.id, pid);
-      else await api.addRoute(selected.id, pid);
-      await refreshSkills();
+      const r = await action();
+      const { text, hasConflict } = describeSync(r);
+      showNotice(`${label}\n${text}`, hasConflict ? 'error' : 'info');
     } catch (e) {
-      showNotice((on ? 'Remove route failed: ' : 'Add route failed: ') + e);
+      showNotice(`${label}失败：${e}`);
     } finally {
-      setRoutePending(null);
+      setPending(null);
+      await refresh().catch(() => {});
     }
   };
 
-  const deleteSelected = async () => {
-    if (!selected || deletePending) return;
-    setDeletePending(true);
-    try { await api.deleteSkill(selected.id); await refreshSkills(); setGridDetailOpen(false); }
-    catch (e) { showNotice('Delete failed: ' + e); }
-    finally { setDeletePending(false); }
-  };
-
-  const addSkill = async (name: string, tagline: string) => {
-    if (importPending) return;
-    setImportPending(true);
+  const createSkill = async (name: string) => {
+    setNewPending(true);
     try {
-      const sk = await api.importSkill(name, tagline);
-      await refreshSkills();
-      setSelectedId(sk.id);
-      setActive('central');
-      setImportOpen(false);
-    } catch (e) { showNotice('Import failed: ' + e); }
-    finally { setImportPending(false); }
+      const path = await api.newSkill(name);
+      setNewOpen(false);
+      setActive('all');
+      await refresh();
+      setSelectedId(name);
+      showNotice(`已创建 ${path}/SKILL.md`, 'info');
+    } catch (e) { showNotice('创建失败：' + e); }
+    finally { setNewPending(false); }
   };
 
-  const activeTitle = active === 'central' ? 'Central Skills' :
-    active === 'settings' ? 'Settings' :
-    platforms.find((pl) => pl.id === active)?.name || active;
+  const syncFromDoctor = async (dryRun: boolean) => {
+    try {
+      const r = await api.runSync(dryRun);
+      if (!dryRun) {
+        showNotice('同步完成\n' + describeSync(r).text, 'info');
+        await refresh();
+      }
+      return r;
+    } catch (e) { showNotice('同步失败：' + e); return null; }
+  };
+
+  const activeTitle = active === 'all' ? '全部'
+    : active.startsWith('state:') ? STATE_LABELS[active.slice(6) as keyof typeof STATE_LABELS]
+      : active.startsWith('agent:') ? agentName(active.slice(6)) : active;
 
   if (bootError) {
     return (
       <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', padding: 40, fontFamily: FONT_SANS, color: '#1d1d1f' }}>
-        <div style={{ maxWidth: 520 }}>
-          <div style={{ fontSize: 16, fontWeight: 600 }}>Failed to start</div>
+        <div style={{ maxWidth: 560 }}>
+          <div style={{ fontSize: 16, fontWeight: 600 }}>无法读取 skill 仓库</div>
           <pre style={{ marginTop: 12, fontSize: 12, background: '#f3f3f5', padding: 12, borderRadius: 6, whiteSpace: 'pre-wrap' }}>{bootError}</pre>
+          <div style={{ marginTop: 12, fontSize: 12, color: '#6e6e73', lineHeight: 1.6 }}>
+            在终端运行 <code style={{ fontFamily: MONO }}>skl init</code>（或 <code style={{ fontFamily: MONO }}>skl init --root &lt;路径&gt;</code>）创建仓库后重新打开。
+          </div>
         </div>
       </div>
     );
@@ -1631,132 +213,85 @@ export default function App() {
     );
   }
 
+  const detailFor = (onClose?: () => void) => selected && (
+    <Detail skill={selected} detail={details[selected.id]} detailLoading={detailLoading} detailError={detailError}
+      agents={agents} pending={pending} p={p} paletteKey={config.palette} onClose={onClose}
+      onPublish={(to) => mutate('publish', `已发布 ${selected.id}`, () => api.publishSkill(selected.id, to))}
+      onSetAgents={(to) => mutate('agents', `已更新 ${selected.id} 的分发`, () => api.setSkillAgents(selected.id, to))}
+      onUnpublish={() => mutate('unpublish', `已取消发布 ${selected.id}`, () => api.unpublishSkill(selected.id))} />
+  );
+
   return (
-    <div style={{
-      position: 'absolute', inset: 0,
-      background: p.bg, fontFamily: FONT_SANS, color: p.text,
-      display: 'flex', overflow: 'hidden',
-    }}>
+    <div style={{ position: 'absolute', inset: 0, background: p.bg, fontFamily: FONT_SANS, color: p.text, display: 'flex', overflow: 'hidden' }}>
       <WindowDragStrip />
       <NoticeToast notice={notice} onClose={() => setNotice(null)} p={p} />
-      <Sidebar active={active} setActive={setActive} counts={counts}
-        visiblePlatforms={visiblePlatforms} totalSkills={skills.length} p={p} />
+      <Sidebar active={active} setActive={setActive} counts={counts} agents={agents}
+        issueCount={issueCount} root={overview?.root ?? ''} p={p} />
 
       {active === 'settings' ? (
-        <SettingsPane p={p} platforms={platforms} config={config} setConfig={setConfig}
-          apiKeyConfigured={apiKeyConfigured} apiKeyPending={apiKeyPending} aiTestPending={aiTestPending} aiTest={aiTest}
-          onSaveApiKey={saveApiKey} onClearApiKey={clearApiKey} onTestAi={testAiConfig}
-          onRegenerateAllSummaries={regenerateAllSummaries} regenerateAllPending={regenerateAllPending}
-          onInitialize={openInitRepository} initializePending={initScanPending} />
+        <SettingsPane p={p} config={config} setConfig={setConfig} overview={overview} />
+      ) : active === 'doctor' ? (
+        <DoctorPane findings={findings} loading={doctorLoading} onRecheck={runDoctor} onSync={syncFromDoctor} p={p} />
       ) : (
         <>
           <div style={{
-            width: config.view === 'grid' ? undefined : 360,
-            flex: config.view === 'grid' ? 1 : undefined,
+            width: config.view === 'grid' ? undefined : 360, flex: config.view === 'grid' ? 1 : undefined,
             borderRight: config.view === 'grid' ? 0 : '1px solid ' + p.line,
             display: 'flex', flexDirection: 'column', background: p.panel, minWidth: 0,
           }}>
-            <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
+            <DragSpacer bg={p.panel} />
             <ListHeader title={activeTitle + ' · ' + filtered.length} q={q} setQ={setQ}
               view={config.view} setView={(v) => { void setConfig({ view: v }); if (v !== 'grid') setGridDetailOpen(false); }}
-              onImport={() => setImportOpen(true)} onRefresh={refreshSkills}
-              refreshing={scanPending} importDisabled={importPending}
-              p={p} density={config.density} />
+              onNew={() => setNewOpen(true)} onRefresh={() => { refresh().catch(() => {}); }}
+              refreshing={refreshing} p={p} density={config.density} />
             <div style={{ flex: 1, overflowY: 'auto' }}>
               {filtered.length === 0 ? (
-                <div style={{ padding: 40, textAlign: 'center', color: p.text3, fontSize: 12 }}>
-                  {active === 'central'
-                    ? <>No skills in <code style={{ fontFamily: MONO }}>~/.skilldock/skills/</code> yet.<br/>Use Initialize to migrate existing platform skills.</>
-                    : <>No skills routed here.<br/>Toggle this platform on a skill in Central.</>}
+                <div style={{ padding: 40, textAlign: 'center', color: p.text3, fontSize: 12, lineHeight: 1.6 }}>
+                  {skills.length === 0
+                    ? <>仓库里还没有 skill。<br />点 ＋ New 在开发区新建一个。</>
+                    : '这里没有 skill。'}
                 </div>
               ) : config.view === 'list' ? (
                 filtered.map((s) => (
-                  <SkillRow key={s.id} skill={s} selected={selected?.id === s.id}
-                    onClick={() => setSelectedId(s.id)} p={p} density={config.density} platforms={platforms} />
+                  <SkillRow key={s.id} skill={s} selected={selected?.id === s.id} onClick={() => setSelectedId(s.id)} p={p} density={config.density} />
                 ))
               ) : (
                 <div style={{ padding: 16, display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(230px, 1fr))', gap: 10 }}>
                   {filtered.map((s) => (
                     <SkillCard key={s.id} skill={s} selected={selected?.id === s.id}
-                      onClick={() => { setSelectedId(s.id); setGridDetailOpen(true); }} p={p} platforms={platforms} />
+                      onClick={() => { setSelectedId(s.id); setGridDetailOpen(true); }} p={p} />
                   ))}
                 </div>
               )}
             </div>
           </div>
-          {config.view !== 'grid' && selected ? (
-            <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-              <div data-tauri-drag-region style={{ height: 28, flexShrink: 0, background: p.panel }} />
-              <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
-                summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
-                onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary))}
-                toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
-                routePending={routePending} deletePending={deletePending}
-                visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette} />
-            </div>
-          ) : config.view !== 'grid' ? (
+          {config.view !== 'grid' && (
             <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0, background: p.panel }}>
-              <div data-tauri-drag-region style={{ height: 28, flexShrink: 0 }} />
-              <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>
-                {skills.length === 0 ? 'Import a skill to get started.' : 'Pick a skill from the list.'}
-              </div>
+              <DragSpacer bg={p.panel} />
+              {selected ? detailFor() : (
+                <div style={{ flex: 1, display: 'grid', placeItems: 'center', color: p.text3, fontSize: 13 }}>Pick a skill from the list.</div>
+              )}
             </div>
-          ) : null}
+          )}
         </>
       )}
 
       {config.view === 'grid' && gridDetailOpen && selected && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label={`${selected.title} skill details`}
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) setGridDetailOpen(false);
-          }}
-          style={{
-            position: 'absolute', inset: 0, zIndex: 30,
-            display: 'grid', placeItems: 'center', padding: '44px 32px 24px',
-            background: 'rgba(20, 24, 32, 0.22)',
-            backdropFilter: 'blur(2px)',
-          }}
-        >
-          <div
-            onMouseDown={(event) => event.stopPropagation()}
+        <div role="dialog" aria-modal="true" aria-label={`${selected.id} skill details`}
+          onMouseDown={(e) => { if (e.target === e.currentTarget) setGridDetailOpen(false); }}
+          style={{ position: 'absolute', inset: 0, zIndex: 30, display: 'grid', placeItems: 'center', padding: '44px 32px 24px', background: 'rgba(20, 24, 32, 0.22)', backdropFilter: 'blur(2px)' }}>
+          <div onMouseDown={(e) => e.stopPropagation()}
             style={{
-              width: 'min(820px, calc(100vw - 64px))',
-              height: 'min(860px, calc(100vh - 72px))',
-              maxHeight: 'calc(100vh - 72px)',
-              display: 'flex', flexDirection: 'column', overflow: 'hidden',
-              background: p.panel, border: '1px solid ' + p.line,
+              width: 'min(820px, calc(100vw - 64px))', height: 'min(860px, calc(100vh - 72px))', maxHeight: 'calc(100vh - 72px)',
+              display: 'flex', flexDirection: 'column', overflow: 'hidden', background: p.panel, border: '1px solid ' + p.line,
               borderRadius: 16, boxShadow: '0 24px 80px rgba(0,0,0,0.28)',
-            }}
-          >
-            <Detail skill={selected} detail={selectedDetail} detailLoading={detailLoading} detailError={detailError}
-              summary={selectedSummary} summaryLoading={selectedSummaryLoading} summaryError={selectedSummaryError}
-              onRegenerateSummary={() => loadSummary(selected.id, Boolean(selectedSummary))}
-              toggleRoute={toggleRoute} onDelete={deleteSelected} onNotice={showNotice}
-              routePending={routePending} deletePending={deletePending}
-              visiblePlatforms={visiblePlatforms} p={p} paletteKey={config.palette}
-              onClose={() => setGridDetailOpen(false)} />
+            }}>
+            {detailFor(() => setGridDetailOpen(false))}
           </div>
         </div>
       )}
 
-      <ImportModal open={importOpen} onClose={() => setImportOpen(false)} onAdd={addSkill} pending={importPending} p={p} />
-      <InitRepositoryModal
-        open={initOpen}
-        preview={initPreview}
-        result={initResult}
-        selected={initSelected}
-        scanPending={initScanPending}
-        runPending={initRunPending}
-        onClose={() => setInitOpen(false)}
-        onRefresh={() => loadInitPreview()}
-        onRun={runInitRepository}
-        onToggle={toggleInitItem}
-        onToggleAll={toggleAllInitItems}
-        p={p}
-      />
+      <NewSkillModal open={newOpen} onClose={() => setNewOpen(false)} onCreate={createSkill} pending={newPending} root={overview?.root ?? ''} p={p} />
     </div>
   );
 }

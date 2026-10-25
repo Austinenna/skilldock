@@ -1,43 +1,49 @@
 # SkillDock
 
-集中式 Skill 管理器 —— 所有 skill 真实存放在 `~/.skilldock/skills/`，各 AI 工具的目录里只放符号链接。Codex CLI 的路由目录是 `~/.codex/skills/`。
+给多个 AI agent（Claude Code、Codex、WorkBuddy、OpenClaw……）统一管理 skill：在开发区写、测，确认后发布成快照，再用软链接分发给指定的 agent。
 
-**当前 MVP 功能：**
+由两部分组成：
 
-- 三栏 macOS 原生窗口（侧栏 / 列表 / 详情）
-- 扫描 `~/.skilldock/skills/`，列出所有 skill
-- 解析 `SKILL.md` frontmatter：`name` / `description` / `version` / `tags`
-- 详情接口返回 `SKILL.md`，详情页显示真实 source path 和文件列表
-- 按平台开关路由（创建/删除 symlink）
-- 初始化中央仓库：扫描所有已知平台 skill 目录，预览来源/冲突和内容 fingerprint 后，把真实目录备份迁移到 central 并替换为 symlink
-- 初始化迁移写入 `~/.skilldock/backups/init-*/journal.jsonl`；执行前复核 fingerprint，失败时回滚已完成的迁移项
-- Import 新 skill（写入 SKILL.md 模板）
-- Delete skill（清理所有 symlink + 真目录）
-- 文件监听：central / 可见平台目录变化后自动刷新，保留手动 Refresh 兜底
-- 路径和 skill id 安全校验，避免路径穿越和误删真实目录
-- 非阻塞错误通知和操作 pending 状态
-- 三套主题、列表/网格视图、紧凑/舒适密度（持久化到 `~/Library/Application Support/com.skilldock.desktop/config.json`）
-- API key 保存在 macOS Keychain，不写入配置文件；界面只读取是否已配置，不回显密钥
-- AI 摘要支持 Anthropic Messages 和 Chat Completions 两种自定义端点；Settings 支持连接测试
-- AI 摘要按 `SKILL.md` 内容 hash + provider/model/endpoint 缓存
-- 进入技能详情不会自动调用 AI；点击 Generate/Regenerate 后才发起摘要请求
-- 没有 AI 摘要缓存时，详情区显示“尚未进行 AI 总结”；已有缓存会在进入详情时直接恢复
+- **`skl` 命令行**（`crates/skl`）：核心逻辑都在这里，agent 也可以直接调用。
+- **SkillDock 桌面应用**（Tauri）：同一套逻辑的图形界面，用来浏览、发布、调整分发和体检。
 
-下一阶段再做：Developer ID 证书接入后的正式公证、CI release workflow、批量路由。
+完整设计、规则和注意事项见 [docs/redesign.md](docs/redesign.md)。
+
+## 结构
+
+```
+<root>/                 # 默认 ~/.skilldock，可用 skl init --root 指定
+├── skills.toml         # [agents] 各 agent 的 skill 目录；[skills] 每个 skill 分发给谁
+├── dev/<name>/         # 开发区：唯一修改源，不会被任何 agent 自动加载
+├── released/<name>/    # 发布区：skl publish 写入的快照；agent 目录只链接到这里
+└── _sandbox/           # skl test 用来测试自动触发
+```
+
+## 安装 skl
+
+```bash
+cargo install --git https://github.com/Austinenna/skilldock skl
+skl init                      # 或 skl init --root ~/somewhere/skills
+skl --help
+```
+
+常用：`skl new` / `skl test` / `skl publish <name> --to claude,codex` / `skl ls` / `skl doctor` / `skl sync`。
+
+## 桌面应用功能
+
+- 侧栏按状态（开发中 / 有未发布改动 / 已发布）和 agent 筛选
+- 详情：发布（两次点击确认）、按 agent 开关分发、取消发布、SKILL.md 预览、文件列表、dev / released 路径
+- Doctor：断链、冲突、清单不一致、缺依赖；可预览并执行同步
+- 新建 skill（写入 `dev/`）
+- 三套主题、列表/网格视图、紧凑/舒适密度
+
+已移除：AI 摘要（及 Keychain API key）、初始化迁移向导、写死的平台列表。
 
 ## 当前限制
 
-- AI 摘要的 live API 请求需要用户在 Settings 里配置 provider、endpoint、model，并将 API key 保存到 macOS Keychain；可用 Test 按钮先验证。
-- macOS `.app` + `.dmg` release 流程已开启；本机没有 Developer ID 证书时会使用 ad-hoc 签名，正式分发前仍需要 Apple notarization。
-- watcher 只在启动时读取一次当前隐藏平台配置；运行中修改平台可见性后，仍可用手动 Refresh 兜底。
-- 还没有 GitHub Actions CI；当前 release 流程先在本机执行。
-
-## 路径边界与初始化安全
-
-- `~/.skilldock/skills/` 是唯一真实仓库；Claude Code、Codex CLI（`~/.codex/skills/`）、OpenClaw 等平台目录只保存指向中央目录的 symlink。
-- 中央 skill 必须是位于中央目录内的真实目录。中央条目若是 symlink、非目录或 canonical 路径越出中央目录，扫描、路由和初始化都会拒绝处理；平台上的真实目录或指向其他位置的 symlink 只有在初始化预览明确选中后才会先备份再迁移，普通路由操作不会覆盖。
-- 初始化预览会为每个来源目录计算内容 fingerprint。点击执行后，SkillDock 要求前端提交预览时的 fingerprint，并在迁移每项前再次校验；内容在预览后变化时必须重新扫描。
-- 每次有实际迁移的初始化都会创建独立备份目录和 JSONL journal。某一项失败时，已完成项会按 journal 记录逆序回滚；无法安全确认目标未被外部修改时会记录回滚错误并避免覆盖外部改动。
+- 文件监听只覆盖根目录、`dev/`、`released/` 顶层；skill 内部文件的修改需要手动 Refresh。
+- macOS `.app` + `.dmg` 发布流程已开启；本机没有 Developer ID 证书时使用 ad-hoc 签名，正式分发前仍需 Apple notarization。
+- 还没有 GitHub Actions CI。
 
 ## 首次启动
 
@@ -55,14 +61,14 @@ pnpm install
 pnpm tauri dev
 ```
 
-第一次启动会自动创建空目录 `~/.skilldock/skills/`。点 ＋ Import 加 skill 试试，或者把你已有的 skill 复制进去。
+应用读取 `skl` 的根目录（见上）。第一次使用前先运行 `skl init`。
 
 ## 开发命令
 
 ```bash
+cd crates/skl && cargo test
 pnpm build
 cd src-tauri && cargo check
-cd src-tauri && cargo test
 ```
 
 需要本地调试窗口时：
@@ -84,25 +90,21 @@ git log --oneline --decorate -5
 
 ```
 skilldock/
-├── prototype/          # 之前的 HTML/React CDN 原型，留作设计参考
+├── crates/skl/         # 核心库 skilldock_core + skl 命令行
 ├── src/                # Vite + React + TS 前端
-│   ├── App.tsx         # 所有 UI 组件
+│   ├── App.tsx         # 状态与布局
+│   ├── Sidebar.tsx / SkillList.tsx / Detail.tsx / Panes.tsx
+│   ├── ui.tsx          # 通用组件与常量
 │   ├── ipc.ts          # invoke Tauri 命令的薄封装
 │   ├── palettes.ts     # 三套配色
 │   └── types.ts        # 共享类型
-├── src-tauri/          # Rust 后端
-│   └── src/
-│       ├── platforms.rs # 平台清单（central + claude + codex + ...）
-│       ├── repository_init.rs # 初始化预览、fingerprint、备份、journal 和回滚
-│       ├── skills.rs   # scan / import / delete
-│       ├── routes.rs   # add_route / remove_route（symlink 管理）
-│       ├── config.rs   # 用户偏好持久化
-│       ├── ai.rs       # Keychain API key 请求 + AI summary cache
-│       ├── watcher.rs  # 文件监听，emit skills-changed
-│       └── error.rs    # 统一错误类型
-├── docs/plans/         # 分步实现计划
-├── docs/reports/       # 每步修改报告
-└── DEVELOPMENT.md      # 完整开发文档
+├── src-tauri/src/
+│   ├── skills.rs       # Tauri 命令：调用 skilldock_core 并转换为前端类型
+│   ├── config.rs       # 界面偏好（主题、密度、视图）
+│   ├── watcher.rs      # 监听根目录 / dev / released 顶层
+│   └── error.rs
+├── prototype/          # 早期 HTML 原型，留作设计参考
+└── docs/redesign.md    # 当前设计文档
 ```
 
 ## 打包发布 macOS 版本

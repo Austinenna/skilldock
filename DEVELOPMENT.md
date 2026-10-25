@@ -1,5 +1,7 @@
 # SkillDock 开发文档
 
+> ⚠️ **已过时**：这是 v0.1.0（中央目录 + 路由开关 + AI 摘要）时期的文档。当前设计以 [docs/redesign.md](docs/redesign.md) 为准。
+
 > 把当前的 HTML/React 原型，做成一个能在 macOS 上跑的真应用，并为后续扩展到 Windows/Linux 留好接口。
 
 ---

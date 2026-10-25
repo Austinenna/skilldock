@@ -1,5 +1,7 @@
 # SkillDock 交接记录
 
+> **2026-10-25 起进入重构**：先读 [docs/redesign.md](docs/redesign.md)。以下为重构前（v0.1.0）的记录，AI 摘要和初始化迁移将被删除，中央目录已迁到 `~/Projects/skills/released/`。
+
 ## 当前定位
 
 SkillDock 是一个 macOS 桌面端 Skill 管理器。它把真实 Skill 集中放在 `~/.skilldock/skills/`，再通过符号链接按平台路由到 Claude Code、Codex CLI、OpenClaw 等工具目录；Codex CLI 的平台目录固定为 `~/.codex/skills/`。前端使用 Vite + React + TypeScript，桌面壳和文件系统操作使用 Tauri 2 + Rust。

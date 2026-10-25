@@ -11,3 +11,4 @@ src-tauri/gen
 
 .vscode/*
 !.vscode/extensions.json
+crates/*/target

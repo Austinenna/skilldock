@@ -1,29 +1,31 @@
 export type PaletteKey = 'cool' | 'warm' | 'slate';
 export type Density = 'compact' | 'comfortable';
 export type View = 'list' | 'grid';
-export type PlatformGroup = 'Core' | 'Coding' | 'Lobster';
-export type AiProvider = 'anthropic' | 'chat';
 
-export interface Platform {
+/** See State in crates/skl. */
+export type SkillState = 'devOnly' | 'released' | 'devAhead' | 'releasedOnly' | 'manifestOnly';
+
+export interface Agent {
   id: string;
-  name: string;
-  short: string;
   path: string;
-  group: PlatformGroup;
-  isHub: boolean;
+  installed: boolean;
 }
 
 export interface Skill {
   id: string;
-  title: string;
-  tagline: string;
-  version: string;
-  size: string;
-  files: number;
-  updated: string;
-  tags: string[];
-  routes: string[];
-  routeConflicts: RouteConflict[];
+  description: string;
+  state: SkillState;
+  agents: string[];
+  hasDev: boolean;
+  hasReleased: boolean;
+}
+
+export interface Overview {
+  root: string;
+  rootSource: string;
+  manifestPath: string;
+  agents: Agent[];
+  skills: Skill[];
 }
 
 export interface SkillFile {
@@ -34,14 +36,29 @@ export interface SkillFile {
 }
 
 export interface SkillDetail {
-  skill: Skill;
   skillMd: string;
-  sourcePath: string;
+  devPath: string | null;
+  releasedPath: string | null;
   files: SkillFile[];
 }
 
-export interface RouteConflict {
-  platformId: string;
+export interface SyncLine {
+  agent: string;
+  name: string;
+  action: 'created' | 'fixed' | 'removed' | 'conflict';
+  message: string;
+}
+
+export interface SyncResult {
+  changes: SyncLine[];
+  kept: number;
+  notes: string[];
+  warnings: string[];
+  git: string | null;
+}
+
+export interface Finding {
+  level: 'error' | 'warn' | 'info';
   message: string;
 }
 
@@ -49,75 +66,4 @@ export interface Config {
   palette: PaletteKey;
   density: Density;
   view: View;
-  hiddenPlatforms: string[];
-  aiProvider: AiProvider;
-  aiEndpoint: string;
-  aiModel: string;
-}
-
-export interface AiTestResult {
-  provider: AiProvider;
-  model: string;
-  response: string;
-}
-
-export interface ApiKeyStatus {
-  configured: boolean;
-}
-
-export type InitAction =
-  | 'migrateToCentral'
-  | 'linkExistingCentral'
-  | 'linkPlannedCentral'
-  | 'resolveConflictSource'
-  | 'alreadyRouted'
-  | 'skipConflict'
-  | 'skipInvalid';
-
-export interface InitPreviewItem {
-  key: string;
-  id: string;
-  title: string;
-  platformId: string;
-  platformName: string;
-  platformPath: string;
-  sourcePath: string;
-  contentPath: string;
-  sourceIsSymlink: boolean;
-  fingerprint: string;
-  targetId: string;
-  targetPath: string;
-  action: InitAction;
-  selected: boolean;
-  message?: string;
-}
-
-export interface InitPreviewSummary {
-  migratable: number;
-  alreadyRouted: number;
-  conflicts: number;
-  skipped: number;
-}
-
-export interface InitPreview {
-  centralPath: string;
-  items: InitPreviewItem[];
-  summary: InitPreviewSummary;
-}
-
-export interface InitRunItem {
-  key: string;
-  id: string;
-  platformId: string;
-  action: InitAction;
-  status: string;
-  message?: string;
-}
-
-export interface InitResult {
-  backupRoot: string;
-  completed: number;
-  skipped: number;
-  failed: number;
-  items: InitRunItem[];
 }

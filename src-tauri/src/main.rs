@@ -2,38 +2,28 @@
 
 use tauri::Manager;
 
-mod ai;
 mod config;
 mod error;
-mod platforms;
-mod repository_init;
-mod routes;
 mod skills;
 mod watcher;
 
 fn main() {
     tauri::Builder::default()
         .setup(|app| {
-            let skill_watcher = watcher::build(app.handle().clone())?;
-            app.manage(skill_watcher);
+            if let Some(skill_watcher) = watcher::build(app.handle().clone())? {
+                app.manage(skill_watcher);
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            platforms::list_platforms,
-            repository_init::preview_repository_init,
-            repository_init::run_repository_init,
-            skills::scan_skills,
+            skills::get_overview,
             skills::get_skill_detail,
-            skills::import_skill,
-            skills::delete_skill,
-            routes::add_route,
-            routes::remove_route,
-            ai::get_api_key_status,
-            ai::set_api_key,
-            ai::clear_api_key,
-            ai::test_ai_config,
-            ai::get_cached_summary,
-            ai::generate_summary,
+            skills::new_skill,
+            skills::publish_skill,
+            skills::set_skill_agents,
+            skills::unpublish_skill,
+            skills::run_sync,
+            skills::run_doctor,
             config::get_config,
             config::update_config,
         ])

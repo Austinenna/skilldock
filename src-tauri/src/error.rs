@@ -6,26 +6,18 @@ pub enum AppError {
     Io(#[from] std::io::Error),
     #[error("home directory not found")]
     NoHomeDir,
-    #[error("skill not found: {0}")]
-    SkillNotFound(String),
-    #[error("platform not found: {0}")]
-    PlatformNotFound(String),
-    #[error("cannot route to hub")]
-    HubRoute,
-    #[error("conflict: {0}")]
-    Conflict(String),
-    #[error("invalid name: {0}")]
-    InvalidName(String),
     #[error("json: {0}")]
     Json(#[from] serde_json::Error),
     #[error("watcher: {0}")]
     Watcher(#[from] notify::Error),
-    #[error("keychain: {0}")]
-    Keyring(#[from] keyring::Error),
-    #[error("database: {0}")]
-    Database(String),
-    #[error("ai: {0}")]
-    Ai(String),
+    #[error("{0}")]
+    Core(String),
+}
+
+impl From<skilldock_core::Error> for AppError {
+    fn from(e: skilldock_core::Error) -> Self {
+        AppError::Core(e.0)
+    }
 }
 
 impl Serialize for AppError {
