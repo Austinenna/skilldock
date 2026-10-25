@@ -17,6 +17,7 @@ path = "src/main.rs"
 dirs = "6"
 serde_yaml = "0.9"
 sha2 = "0.10"
+similar = "2"
 toml_edit = "0.25"
 
 [profile.release]

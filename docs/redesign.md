@@ -104,6 +104,8 @@ draft-to-app = ["codex"]
 | `skl new <name>` | 在 `dev/` 创建 `SKILL.md` 骨架 |
 | `skl ls [--agent ID]` | 按状态分组（有未发布改动 → 开发中 → 已发布）列出 skill 及分发；`--agent` 只看分发给该 agent 的 |
 | `skl open <name>` | 用 Finder 打开 skill 目录（有开发区就开开发区，否则开发布区） |
+| `skl show [name] [--released]` | 打印 SKILL.md（默认开发区，`--released` 看发布版）；在 skill 目录里运行可省略 name |
+| `skl diff [name] [--stat]` | 开发区相对发布版改了什么：`+` 新增、`-` 删除、`M` 修改，修改的文本文件附逐行 diff；排除规则与发布相同。不带 name（且不在 skill 目录里）时列出所有有未发布改动的 skill。app 详情页的"未发布改动"区域用的是同一个函数 |
 | `skl test <name> [--clean]` | 在 `_sandbox/.claude/skills`、`_sandbox/.agents/skills` 下链接**开发版**，用于测试自动触发 |
 | `skl publish <name> [--to a,b\|all]` | dev → released 快照；更新清单；同步该 skill 的链接；根目录是 git 仓库时自动提交。不带 `--to`：**首次发布给全部 agent，更新沿用原分发** |
 | `skl link <name> <agent>...` | 追加分发，不重新发布内容；`all` 表示全部 |

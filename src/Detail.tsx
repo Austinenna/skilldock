@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { DiffSection } from './Diff';
 import type { Palette } from './palettes';
 import type { Agent, PaletteKey, Skill, SkillDetail } from './types';
 import { AGENT_ACCENTS, Button, FONT_DISPLAY_WARM, FONT_SANS, MONO, Section, StateBadge, Toggle, agentName, useConfirm } from './ui';
@@ -77,6 +78,8 @@ export function Detail({ skill, detail, detailLoading, detailError, agents, pend
           </div>
         )}
       </div>
+
+      {skill.state === 'devAhead' && <DiffSection skillId={skill.id} refreshKey={detail} p={p} />}
 
       <Section title="Agents" badge={live ? `${skill.agents.length} linked` : '发布时生效'} p={p}>
         <div style={{ padding: '4px 28px 20px', display: 'flex', flexDirection: 'column', gap: 6 }}>

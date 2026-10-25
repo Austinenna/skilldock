@@ -18,6 +18,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             skills::get_overview,
             skills::get_skill_detail,
+            skills::get_skill_diff,
             skills::new_skill,
             skills::publish_skill,
             skills::set_skill_agents,

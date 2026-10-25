@@ -27,7 +27,7 @@ skl init                      # 或 skl init --root ~/somewhere/skills
 skl --help
 ```
 
-常用：`skl new` / `skl test` / `skl publish <name> --to claude,codex` / `skl link <name> claude` / `skl ls --agent codex` / `skl open <name>` / `skl delete <name>` / `skl doctor` / `skl sync`。
+常用：`skl new` / `skl test` / `skl publish <name> --to claude,codex` / `skl link <name> claude` / `skl ls --agent codex` / `skl open <name>` / `skl show [name]` / `skl diff [name]` / `skl delete <name>` / `skl doctor` / `skl sync`。
 
 ## 桌面应用功能
 

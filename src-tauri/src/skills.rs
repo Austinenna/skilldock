@@ -59,6 +59,18 @@ pub struct SkillDetail {
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct FileChange {
+    pub path: String,
+    /// added | removed | modified
+    pub kind: &'static str,
+    pub old_size: String,
+    pub new_size: String,
+    pub binary: bool,
+    pub patch: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncLine {
     pub agent: String,
     pub name: String,
@@ -185,6 +197,26 @@ pub fn get_skill_detail(id: String) -> Result<SkillDetail> {
         released_path: rel.is_dir().then(|| core::tildify(&rel)),
         files,
     })
+}
+
+/// What publishing would change: dev/<id> compared with released/<id>.
+#[tauri::command]
+pub fn get_skill_diff(id: String) -> Result<Vec<FileChange>> {
+    Ok(core::diff_skill(&core::resolve_root()?, &id, true)?
+        .into_iter()
+        .map(|c| FileChange {
+            kind: match c.kind {
+                core::ChangeKind::Added => "added",
+                core::ChangeKind::Removed => "removed",
+                core::ChangeKind::Modified => "modified",
+            },
+            old_size: format_size(c.old_size, BINARY),
+            new_size: format_size(c.new_size, BINARY),
+            binary: c.binary,
+            patch: c.patch,
+            path: c.path,
+        })
+        .collect())
 }
 
 #[tauri::command]

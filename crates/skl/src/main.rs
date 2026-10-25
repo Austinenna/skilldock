@@ -10,6 +10,8 @@ const HELP: &str = "skl —— SkillDock 命令行：开发、测试、发布 sk
   skl new <name>                  在 dev/ 新建 skill 骨架
   skl ls [--agent codex]          按状态分组列出 skill；--agent 只看分发给某个 agent 的
   skl open <name>                 用 Finder 打开 skill 目录（优先开发区）
+  skl show [name] [--released]    打印 SKILL.md（优先开发区）；在 skill 目录里可省略 name
+  skl diff [name] [--stat]        开发区相对发布版改了什么；不带 name 列出所有有未发布改动的
   skl test <name> [--clean]       把开发版链到 _sandbox，测试自动触发
   skl publish <name> [--to a,b|all]
                                   发布：dev → released 快照，同步链接，git 提交。
@@ -198,6 +200,68 @@ fn run() -> Result<()> {
             std::process::Command::new(opener).arg(&path).status()?;
             println!("{}", tildify(&path));
         }
+        "show" | "cat" => {
+            args.only(&["released"])?;
+            let root = resolve_root()?;
+            let name = match args.positional.as_slice() {
+                [] => current_skill(&root)?,
+                [x] => x.clone(),
+                _ => return Err(Error("用法：skl show [name] [--released]".into())),
+            };
+            let dir = if args.flag("released") {
+                check_name(&name)?;
+                let d = root.released().join(&name);
+                if !d.is_dir() {
+                    return Err(Error(format!("`{name}` 还没有发布版")));
+                }
+                d
+            } else {
+                skill_path(&root, &name)?
+            };
+            let md = dir.join("SKILL.md");
+            let text = std::fs::read_to_string(&md)
+                .map_err(|e| Error(format!("读不了 {}：{e}", tildify(&md))))?;
+            print!("{text}");
+            if !text.ends_with('\n') {
+                println!();
+            }
+        }
+        "diff" => {
+            args.only(&["stat"])?;
+            let root = resolve_root()?;
+            let name = match args.positional.as_slice() {
+                [] => current_skill(&root).ok(),
+                [x] => Some(x.clone()),
+                _ => return Err(Error("用法：skl diff [name] [--stat]".into())),
+            };
+            let color = use_color();
+            match name {
+                Some(name) => {
+                    let changes = diff_skill(&root, &name, !args.flag("stat"))?;
+                    if changes.is_empty() {
+                        println!("{name}：开发区和发布版一致");
+                    } else {
+                        print_changes(&name, &changes, !args.flag("stat"), color);
+                    }
+                }
+                None => {
+                    let ahead: Vec<_> =
+                        status(&root)?.into_iter().filter(|s| matches!(s.state, State::DevAhead)).collect();
+                    if ahead.is_empty() {
+                        println!("没有未发布的改动");
+                    }
+                    for (i, s) in ahead.iter().enumerate() {
+                        if i > 0 {
+                            println!();
+                        }
+                        print_changes(&s.name, &diff_skill(&root, &s.name, false)?, false, color);
+                    }
+                    if !ahead.is_empty() {
+                        println!("\n看具体内容：skl diff <name>");
+                    }
+                }
+            }
+        }
         "link" | "unlink" => {
             args.only(&[])?;
             let (name, agents) = match args.positional.split_first() {
@@ -307,6 +371,77 @@ fn main() -> ExitCode {
         Err(e) => {
             eprintln!("skl: {e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+/// The skill whose dev/ or released/ dir contains the current directory.
+fn current_skill(root: &Root) -> Result<String> {
+    let cwd = std::env::current_dir()?.canonicalize()?;
+    for area in [root.dev(), root.released()] {
+        if let Ok(area) = area.canonicalize() {
+            if let Some(name) = cwd.strip_prefix(&area).ok().and_then(|r| r.components().next()) {
+                return Ok(name.as_os_str().to_string_lossy().into_owned());
+            }
+        }
+    }
+    Err(Error("需要 skill 名字（或者在 skill 目录里运行）".into()))
+}
+
+fn use_color() -> bool {
+    use std::io::IsTerminal;
+    std::env::var_os("NO_COLOR").is_none() && std::io::stdout().is_terminal()
+}
+
+fn paint(color: bool, code: &str, text: &str) -> String {
+    if color { format!("\x1b[{code}m{text}\x1b[0m") } else { text.to_string() }
+}
+
+fn human_size(n: u64) -> String {
+    match n {
+        0..=1023 => format!("{n}B"),
+        1024..=1_048_575 => format!("{:.1}KB", n as f64 / 1024.0),
+        _ => format!("{:.1}MB", n as f64 / 1_048_576.0),
+    }
+}
+
+/// File list (`+` added, `-` removed, `M` modified), then each modified file's patch.
+fn print_changes(name: &str, changes: &[FileChange], patches: bool, color: bool) {
+    println!("{}（{} 个文件）", paint(color, "1", name), changes.len());
+    for c in changes {
+        let (mark, code) = match c.kind {
+            ChangeKind::Added => ("+", "32"),
+            ChangeKind::Removed => ("-", "31"),
+            ChangeKind::Modified => ("M", "33"),
+        };
+        let note = if c.binary { "  （二进制）" } else { "" };
+        println!("  {} {}{note}", paint(color, code, mark), c.path);
+    }
+    if !patches {
+        return;
+    }
+    for c in changes.iter().filter(|c| c.kind == ChangeKind::Modified) {
+        println!();
+        println!("{}", paint(color, "1", &format!("── {} ──", c.path)));
+        match &c.patch {
+            Some(patch) => {
+                for line in patch.lines() {
+                    let code = if line.starts_with("@@") {
+                        "36"
+                    } else if line.starts_with('+') {
+                        "32"
+                    } else if line.starts_with('-') {
+                        "31"
+                    } else {
+                        ""
+                    };
+                    println!("{}", if code.is_empty() { line.to_string() } else { paint(color, code, line) });
+                }
+            }
+            None => {
+                let what = if c.binary { "二进制文件" } else { "未显示内容" };
+                println!("{what}，大小 {} → {}", human_size(c.old_size), human_size(c.new_size));
+            }
         }
     }
 }

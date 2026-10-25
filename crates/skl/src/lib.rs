@@ -438,6 +438,175 @@ pub fn same_tree(dev: &Path, released: &Path, exclude: &[String]) -> Result<bool
     Ok(true)
 }
 
+// ---------- diff ----------
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ChangeKind {
+    Added,
+    Removed,
+    Modified,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileChange {
+    /// Path relative to the skill dir.
+    pub path: String,
+    pub kind: ChangeKind,
+    /// Size in released/ (0 when added).
+    pub old_size: u64,
+    /// Size in dev/ (0 when removed).
+    pub new_size: u64,
+    /// Neither side could be shown as text.
+    pub binary: bool,
+    /// Unified diff for modified text files, when requested.
+    pub patch: Option<String>,
+}
+
+/// Files above this size are listed but not diffed line by line.
+const DIFF_MAX_BYTES: u64 = 1 << 20;
+
+enum Leaf {
+    File(PathBuf, u64, Option<std::time::SystemTime>),
+    Link(PathBuf),
+}
+
+/// Every file and symlink under `dir` (dirs themselves are implied by their contents).
+fn leaves(dir: &Path, exclude: &[String]) -> Result<BTreeMap<String, Leaf>> {
+    fn walk(base: &Path, dir: &Path, exclude: &[String], out: &mut BTreeMap<String, Leaf>) -> Result<()> {
+        for e in fs::read_dir(dir)? {
+            let e = e?;
+            if excluded(&e.file_name(), exclude) {
+                continue;
+            }
+            let p = e.path();
+            let rel = p.strip_prefix(base).unwrap().to_string_lossy().into_owned();
+            let ft = e.file_type()?;
+            if ft.is_symlink() {
+                out.insert(rel, Leaf::Link(fs::read_link(&p)?));
+            } else if ft.is_dir() {
+                walk(base, &p, exclude, out)?;
+            } else {
+                let m = fs::metadata(&p)?;
+                out.insert(rel, Leaf::File(p, m.len(), m.modified().ok()));
+            }
+        }
+        Ok(())
+    }
+    let mut out = BTreeMap::new();
+    if dir.is_dir() {
+        walk(dir, dir, exclude, &mut out)?;
+    }
+    Ok(out)
+}
+
+fn as_text(bytes: &[u8]) -> Option<&str> {
+    if bytes.contains(&0) {
+        return None;
+    }
+    std::str::from_utf8(bytes).ok()
+}
+
+fn leaf_size(l: &Leaf) -> u64 {
+    match l {
+        Leaf::File(_, n, _) => *n,
+        Leaf::Link(t) => t.as_os_str().len() as u64,
+    }
+}
+
+fn leaf_is_text(l: &Leaf) -> bool {
+    match l {
+        Leaf::Link(_) => true,
+        Leaf::File(p, n, _) => *n > DIFF_MAX_BYTES || fs::read(p).map(|b| as_text(&b).is_some()).unwrap_or(false),
+    }
+}
+
+/// What publishing `dev/<name>` would change in `released/<name>`.
+/// A skill that was never released shows every file as added.
+/// Uses the same exclude list as publish, so `skl ls` and `skl diff` agree.
+pub fn diff_skill(root: &Root, name: &str, with_patch: bool) -> Result<Vec<FileChange>> {
+    check_name(name)?;
+    let dev = root.dev().join(name);
+    let rel = root.released().join(name);
+    if !is_real_dir(&dev) {
+        if !is_real_dir(&rel) {
+            bail!("没有 `{name}` 这个 skill");
+        }
+        bail!("`{name}` 没有开发区（dev/{name}），没有可比较的改动");
+    }
+    let exclude = Manifest::load(root)?.exclude();
+    let new = leaves(&dev, &exclude)?;
+    let old = leaves(&rel, &exclude)?;
+    let mut out = Vec::new();
+    for (path, n) in &new {
+        let Some(o) = old.get(path) else {
+            out.push(FileChange {
+                path: path.clone(),
+                kind: ChangeKind::Added,
+                old_size: 0,
+                new_size: leaf_size(n),
+                binary: !leaf_is_text(n),
+                patch: None,
+            });
+            continue;
+        };
+        let (old_text, new_text, binary) = match (o, n) {
+            (Leaf::Link(a), Leaf::Link(b)) => {
+                if a == b {
+                    continue;
+                }
+                (format!("-> {}\n", a.display()), format!("-> {}\n", b.display()), false)
+            }
+            (Leaf::File(op, os, om), Leaf::File(np, ns, nm)) => {
+                if os == ns && om.is_some() && om == nm {
+                    continue;
+                }
+                let a = fs::read(op)?;
+                let b = fs::read(np)?;
+                if a == b {
+                    continue;
+                }
+                match (as_text(&a), as_text(&b)) {
+                    (Some(x), Some(y)) if *os <= DIFF_MAX_BYTES && *ns <= DIFF_MAX_BYTES => {
+                        (x.to_string(), y.to_string(), false)
+                    }
+                    (Some(_), Some(_)) => (String::new(), String::new(), false),
+                    _ => (String::new(), String::new(), true),
+                }
+            }
+            // File replaced by symlink or the other way round.
+            _ => (String::new(), String::new(), false),
+        };
+        let patch = (with_patch && !binary && (!old_text.is_empty() || !new_text.is_empty())).then(|| {
+            similar::TextDiff::from_lines(&old_text, &new_text)
+                .unified_diff()
+                .context_radius(3)
+                .to_string()
+        });
+        out.push(FileChange {
+            path: path.clone(),
+            kind: ChangeKind::Modified,
+            old_size: leaf_size(o),
+            new_size: leaf_size(n),
+            binary,
+            patch,
+        });
+    }
+    for (path, o) in &old {
+        if !new.contains_key(path) {
+            out.push(FileChange {
+                path: path.clone(),
+                kind: ChangeKind::Removed,
+                old_size: leaf_size(o),
+                new_size: 0,
+                binary: !leaf_is_text(o),
+                patch: None,
+            });
+        }
+    }
+    out.sort_by(|a, b| a.path.cmp(&b.path));
+    Ok(out)
+}
+
 fn is_real_dir(p: &Path) -> bool {
     fs::symlink_metadata(p).map(|m| m.is_dir()).unwrap_or(false)
 }
@@ -1243,5 +1412,38 @@ mod tests {
             resolve_link(Path::new("/x/agent/skills/foo"), Path::new("../../root/released/foo")),
             PathBuf::from("/x/root/released/foo")
         );
+    }
+
+    #[test]
+    fn diff_lists_changes() {
+        let dir = std::env::temp_dir().join(format!("skl-diff-test-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let root = Root { path: dir.clone(), source: RootSource::Default };
+        let (dev, rel) = (root.dev().join("s"), root.released().join("s"));
+        for d in [&dev, &rel] {
+            fs::create_dir_all(d).unwrap();
+        }
+        fs::write(root.manifest_path(), "[agents]\n").unwrap();
+        fs::write(rel.join("SKILL.md"), "a\nb\n").unwrap();
+        fs::write(dev.join("SKILL.md"), "a\nc\n").unwrap();
+        fs::write(rel.join("old.txt"), "x").unwrap();
+        fs::write(rel.join("same.txt"), "y").unwrap();
+        fs::write(dev.join("same.txt"), "y").unwrap();
+        fs::write(dev.join("img.bin"), [0u8, 1, 2]).unwrap();
+        fs::write(dev.join(".DS_Store"), "junk").unwrap();
+
+        let got: Vec<_> = diff_skill(&root, "s", true).unwrap();
+        let summary: Vec<_> = got.iter().map(|c| (c.path.as_str(), c.kind, c.binary)).collect();
+        assert_eq!(
+            summary,
+            [
+                ("SKILL.md", ChangeKind::Modified, false),
+                ("img.bin", ChangeKind::Added, true),
+                ("old.txt", ChangeKind::Removed, false),
+            ]
+        );
+        let patch = got[0].patch.as_deref().unwrap();
+        assert!(patch.contains("-b\n") && patch.contains("+c\n"));
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -42,6 +42,15 @@ export interface SkillDetail {
   files: SkillFile[];
 }
 
+export interface FileChange {
+  path: string;
+  kind: 'added' | 'removed' | 'modified';
+  oldSize: string;
+  newSize: string;
+  binary: boolean;
+  patch: string | null;
+}
+
 export interface SyncLine {
   agent: string;
   name: string;

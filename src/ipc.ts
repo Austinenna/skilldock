@@ -1,9 +1,11 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Config, Finding, Overview, SkillDetail, SyncResult } from './types';
+import type { Config, FileChange, Finding, Overview, SkillDetail, SyncResult } from './types';
 
 export const api = {
   getOverview: () => invoke<Overview>('get_overview'),
   getSkillDetail: (id: string) => invoke<SkillDetail>('get_skill_detail', { id }),
+  /** dev/<id> vs released/<id>: what publishing would change */
+  getSkillDiff: (id: string) => invoke<FileChange[]>('get_skill_diff', { id }),
   newSkill: (name: string) => invoke<string>('new_skill', { name }),
   /** agents: null keeps the agents already listed in skills.toml */
   publishSkill: (name: string, agents: string[] | null) =>
