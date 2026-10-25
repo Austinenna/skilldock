@@ -19,6 +19,20 @@
 └── _sandbox/           # skl test 用来测试自动触发
 ```
 
+这个仓库只有工具本身，不含任何 skill。`skl init` 之后得到一个空的根目录，skill 由你自己写或收录。
+
+## 下载桌面应用
+
+到 [Releases](https://github.com/Austinenna/skilldock/releases) 下载 `SkillDock_<版本>_aarch64.dmg`（Apple 芯片），拖进"应用程序"。
+
+安装包没有 Apple 公证，第一次打开时 macOS 会拦截（提示"已损坏"或"无法验证开发者"）。确认来源后在终端执行一次：
+
+```bash
+xattr -dr com.apple.quarantine /Applications/SkillDock.app
+```
+
+应用读取 `skl` 的根目录，第一次使用前先装好 `skl` 并运行 `skl init`。
+
 ## 安装 skl
 
 ```bash
@@ -27,7 +41,20 @@ skl init                      # 或 skl init --root ~/somewhere/skills
 skl --help
 ```
 
+需要 Rust（`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`）。支持 macOS 和 Linux。
+
 常用：`skl new` / `skl test` / `skl publish <name> --to claude,codex` / `skl link <name> claude` / `skl ls --agent codex` / `skl open <name>` / `skl show [name]` / `skl diff [name]` / `skl delete <name>` / `skl doctor` / `skl sync`。
+
+## 换电脑
+
+`skl init` 会把根目录初始化成 Git 仓库，每次发布自动提交。把它推到你自己的**私有**远程仓库，新电脑上：
+
+```bash
+cargo install --git https://github.com/Austinenna/skilldock skl
+git clone <你的私有仓库> ~/somewhere/skills
+skl init --root ~/somewhere/skills   # 只补缺的文件，不覆盖已有内容
+skl sync                             # 按 skills.toml 重建各 agent 的软链接
+```
 
 ## 桌面应用功能
 
@@ -119,8 +146,8 @@ pnpm release:mac
 
 ```text
 src-tauri/target/release/bundle/macos/SkillDock.app
-src-tauri/target/release/bundle/dmg/SkillDock_0.1.0_aarch64.dmg
-src-tauri/target/release/bundle/dmg/SkillDock_0.1.0_aarch64.dmg.sha256
+src-tauri/target/release/bundle/dmg/SkillDock_<version>_aarch64.dmg
+src-tauri/target/release/bundle/dmg/SkillDock_<version>_aarch64.dmg.sha256
 ```
 
 如果本机没有 Developer ID Application 证书，脚本会使用 ad-hoc 签名，适合本机验证但不会通过 Gatekeeper 公证。正式分发前先在钥匙串安装证书，并创建 notarytool profile：

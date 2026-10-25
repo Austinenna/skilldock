@@ -1,6 +1,6 @@
 [package]
 name = "skl"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "SkillDock core: develop, test, publish and route agent skills via symlinks"
 license = "MIT"

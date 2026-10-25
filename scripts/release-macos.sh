@@ -45,6 +45,10 @@ if [[ -n "$TARGET" ]]; then
   TAURI_BUILD_ARGS+=(--target "$TARGET")
 fi
 
+# Keep local paths (home dir, checkout location) out of the shipped binary.
+# The last matching prefix wins, so the more specific one goes last.
+export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$HOME=~ --remap-path-prefix=$ROOT_DIR=skilldock"
+
 echo "==> Building $APP_NAME $VERSION for ${TARGET:-native macOS}"
 pnpm "${TAURI_BUILD_ARGS[@]}"
 
@@ -102,7 +106,7 @@ else
   echo "==> Ad-hoc signed build: good for local testing, not Gatekeeper-trusted distribution"
 fi
 
-shasum -a 256 "$DMG_PATH" > "$CHECKSUM_PATH"
+(cd "$DMG_DIR" && shasum -a 256 "$(basename "$DMG_PATH")") > "$CHECKSUM_PATH"
 
 echo
 echo "Release artifacts:"
