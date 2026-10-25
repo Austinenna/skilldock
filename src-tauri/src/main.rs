@@ -22,6 +22,7 @@ fn main() {
             skills::publish_skill,
             skills::set_skill_agents,
             skills::unpublish_skill,
+            skills::delete_skill,
             skills::run_sync,
             skills::run_doctor,
             config::get_config,

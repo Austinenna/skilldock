@@ -176,6 +176,20 @@ export default function App() {
     finally { setNewPending(false); }
   };
 
+  const deleteSkill = async (name: string) => {
+    if (pending) return;
+    setPending('delete');
+    try {
+      const moved = await api.deleteSkill(name);
+      setGridDetailOpen(false);
+      showNotice(moved ? `已删除 ${name}\n开发区已移到 ${moved}` : `已删除 ${name}`, 'info');
+    } catch (e) { showNotice('删除失败：' + e); }
+    finally {
+      setPending(null);
+      await refresh().catch(() => {});
+    }
+  };
+
   const syncFromDoctor = async (dryRun: boolean) => {
     try {
       const r = await api.runSync(dryRun);
@@ -218,7 +232,8 @@ export default function App() {
       agents={agents} pending={pending} p={p} paletteKey={config.palette} onClose={onClose}
       onPublish={(to) => mutate('publish', `已发布 ${selected.id}`, () => api.publishSkill(selected.id, to))}
       onSetAgents={(to) => mutate('agents', `已更新 ${selected.id} 的分发`, () => api.setSkillAgents(selected.id, to))}
-      onUnpublish={() => mutate('unpublish', `已取消发布 ${selected.id}`, () => api.unpublishSkill(selected.id))} />
+      onUnpublish={() => mutate('unpublish', `已取消发布 ${selected.id}`, () => api.unpublishSkill(selected.id))}
+      onDelete={() => deleteSkill(selected.id)} />
   );
 
   return (

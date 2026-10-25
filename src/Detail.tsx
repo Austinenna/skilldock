@@ -4,18 +4,21 @@ import type { Agent, PaletteKey, Skill, SkillDetail } from './types';
 import { AGENT_ACCENTS, Button, FONT_DISPLAY_WARM, FONT_SANS, MONO, Section, StateBadge, Toggle, agentName, useConfirm } from './ui';
 
 /** pending: 'publish' | 'unpublish' | 'agents' | null */
-export function Detail({ skill, detail, detailLoading, detailError, agents, pending, onPublish, onSetAgents, onUnpublish, onClose, p, paletteKey }: {
+export function Detail({ skill, detail, detailLoading, detailError, agents, pending, onPublish, onSetAgents, onUnpublish, onDelete, onClose, p, paletteKey }: {
   skill: Skill; detail?: SkillDetail; detailLoading: boolean; detailError: string | null;
   agents: Agent[]; pending: string | null;
-  onPublish: (agents: string[] | null) => void; onSetAgents: (agents: string[]) => void; onUnpublish: () => void;
+  onPublish: (agents: string[] | null) => void; onSetAgents: (agents: string[]) => void; onUnpublish: () => void; onDelete: () => void;
   onClose?: () => void; p: Palette; paletteKey: PaletteKey;
 }) {
   const [mdOpen, setMdOpen] = useState(false);
   const [filesOpen, setFilesOpen] = useState(true);
-  const [draft, setDraft] = useState<string[]>(skill.agents);
+  // First publish defaults to every agent (same as `skl publish` without --to).
+  const initialDraft = () => (skill.hasReleased || skill.agents.length ? skill.agents : agents.map((a) => a.id));
+  const [draft, setDraft] = useState<string[]>(initialDraft);
   const publishConfirm = useConfirm(skill.id + skill.state);
   const unpublishConfirm = useConfirm(skill.id + skill.state);
-  useEffect(() => { setDraft(skill.agents); }, [skill.id, skill.agents.join(',')]);
+  const deleteConfirm = useConfirm(skill.id);
+  useEffect(() => { setDraft(initialDraft()); }, [skill.id, skill.agents.join(','), agents.length]);
 
   const display = paletteKey === 'warm' ? FONT_DISPLAY_WARM : FONT_SANS;
   const busy = pending !== null;
@@ -144,16 +147,26 @@ export function Detail({ skill, detail, detailLoading, detailError, agents, pend
         </div>
       </Section>
 
-      {skill.hasReleased && (
-        <div style={{ padding: '18px 28px 28px', display: 'flex', alignItems: 'center', gap: 12 }}>
-          <div style={{ flex: 1, fontSize: 11, color: p.text3, lineHeight: 1.5 }}>
-            取消发布会删除所有 agent 里的链接和 <code style={{ fontFamily: MONO }}>released/{skill.id}</code>，开发区保留。
+      <div style={{ padding: '18px 28px 28px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {skill.hasReleased && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{ flex: 1, fontSize: 11, color: p.text3, lineHeight: 1.5 }}>
+              取消发布会删除所有 agent 里的链接和 <code style={{ fontFamily: MONO }}>released/{skill.id}</code>，开发区保留。
+            </div>
+            <Button danger={unpublishConfirm.armed} disabled={busy} onClick={() => unpublishConfirm.run(onUnpublish)} p={p}>
+              {pending === 'unpublish' ? '处理中…' : unpublishConfirm.armed ? '确认取消发布' : '取消发布'}
+            </Button>
           </div>
-          <Button danger={unpublishConfirm.armed} disabled={busy} onClick={() => unpublishConfirm.run(onUnpublish)} p={p}>
-            {pending === 'unpublish' ? '处理中…' : unpublishConfirm.armed ? '确认取消发布' : '取消发布'}
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <div style={{ flex: 1, fontSize: 11, color: p.text3, lineHeight: 1.5 }}>
+            删除会{skill.hasReleased ? '先取消发布，再' : ''}把 <code style={{ fontFamily: MONO }}>dev/{skill.id}</code> 移到仓库的 <code style={{ fontFamily: MONO }}>.trash/</code>，需要时可以移回来。
+          </div>
+          <Button danger disabled={busy} onClick={() => deleteConfirm.run(onDelete)} p={p}>
+            {pending === 'delete' ? '删除中…' : deleteConfirm.armed ? '确认删除' : '删除 skill'}
           </Button>
         </div>
-      )}
+      </div>
     </div>
   );
 }

@@ -102,11 +102,15 @@ draft-to-app = ["codex"]
 | `skl init [--root PATH]` | 创建根目录结构；带 `--root` 时把路径写入 `~/.config/skilldock/config.toml`。已存在的文件不覆盖 |
 | `skl root` | 打印当前根目录及其来源 |
 | `skl new <name>` | 在 `dev/` 创建 `SKILL.md` 骨架 |
-| `skl ls` | 列出所有 skill：状态（开发中 / 已发布 / 开发版有未发布改动）+ 分发到哪些 agent |
+| `skl ls [--agent ID]` | 按状态分组（有未发布改动 → 开发中 → 已发布）列出 skill 及分发；`--agent` 只看分发给该 agent 的 |
+| `skl open <name>` | 用 Finder 打开 skill 目录（有开发区就开开发区，否则开发布区） |
 | `skl test <name> [--clean]` | 在 `_sandbox/.claude/skills`、`_sandbox/.agents/skills` 下链接**开发版**，用于测试自动触发 |
-| `skl publish <name> [--to a,b]` | dev → released 快照；更新清单；同步该 skill 的链接；根目录是 git 仓库时自动提交 |
+| `skl publish <name> [--to a,b\|all]` | dev → released 快照；更新清单；同步该 skill 的链接；根目录是 git 仓库时自动提交。不带 `--to`：**首次发布给全部 agent，更新沿用原分发** |
+| `skl link <name> <agent>...` | 追加分发，不重新发布内容；`all` 表示全部 |
+| `skl unlink <name> <agent>...` | 移除分发，发布版保留 |
 | `skl adopt <path> [--as name] [--to a,b]` | 把一个已有目录原样收进 `released/`（迁移旧副本、收录第三方 skill 用）；`dev/` 里没有同名时也复制一份到 `dev/` |
 | `skl unpublish <name>` | 从清单移除、删除链接和 `released/<name>`；`dev/` 保留 |
+| `skl delete <name> [--yes]` | 删除 skill：先取消发布，再把 `dev/<name>` 移到 `<root>/.trash/<name>-<时间戳>`（不直接删，可移回）；不带 `--yes` 会要求确认 |
 | `skl sync [--dry-run]` | 让所有 agent 目录的链接与清单一致 |
 | `skl doctor` | 体检：断链、冲突、清单与发布区不一致、命名问题、开发版未发布改动 |
 
@@ -207,7 +211,7 @@ skilldock/
 
 **状态**：2026-10-25 已按上表完成改造。界面上的“发布”需要连点两次确认，点击本身就等同于用户授权。如果一个月内都不需要打开 GUI，可把 GUI 部分移入 `~/Projects/archive`，只保留 `crates/skl`。
 
-**未做**：删除开发区 skill（目前只能手动删）；`skl test` 沙盒入口；在界面里编辑 `skills.toml` 的 `[agents]`。
+**未做**：`skl test` 沙盒入口；在界面里编辑 `skills.toml` 的 `[agents]`。界面的删除按钮与 `skl delete` 行为一致。
 
 ## 11. 本机记录
 

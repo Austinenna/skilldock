@@ -289,6 +289,22 @@ impl Manifest {
         ctx(fs::write(&self.path, self.doc.to_string()), self.path.display())
     }
 
+    /// Expand `all` to every configured agent, drop duplicates, validate names.
+    pub fn expand_agents(&self, agents: &[String]) -> Result<Vec<String>> {
+        let known: Vec<String> = self.agents()?.into_iter().map(|(k, _)| k).collect();
+        let mut out: Vec<String> = Vec::new();
+        for a in agents {
+            let items = if a == "all" { known.clone() } else { vec![a.clone()] };
+            for i in items {
+                if !out.contains(&i) {
+                    out.push(i);
+                }
+            }
+        }
+        self.check_agents(&out)?;
+        Ok(out)
+    }
+
     pub fn check_agents(&self, agents: &[String]) -> Result<()> {
         let known: BTreeSet<String> = self.agents()?.into_iter().map(|(k, _)| k).collect();
         for a in agents {
@@ -488,7 +504,7 @@ fn git_commit(root: &Root, msg: &str, paths: &[&str]) -> Option<String> {
 
 // ---------- init / new ----------
 
-const GITIGNORE: &str = "_sandbox/\nnode_modules/\n__pycache__/\n.DS_Store\n.staging-*\n.old-*\n";
+const GITIGNORE: &str = "_sandbox/\n.trash/\nnode_modules/\n__pycache__/\n.DS_Store\n.staging-*\n.old-*\n";
 
 fn manifest_template() -> Result<String> {
     let mut s = String::from("# SkillDock 清单：见 https://github.com/Austinenna/skilldock/blob/main/docs/redesign.md\n\n[agents]\n");
@@ -823,21 +839,19 @@ fn check_skill_dir(dir: &Path, name: &str, strict: bool) -> Result<Vec<String>> 
 
 fn finish(root: &Root, manifest: &mut Manifest, name: &str, to: Option<Vec<String>>, msg: &str, warnings: Vec<String>) -> Result<PublishReport> {
     let mut warnings = warnings;
+    // No --to: an update keeps its agents; a first publish goes to every agent.
     let agents = match to {
-        Some(a) => {
-            manifest.check_agents(&a)?;
-            manifest.set_skill(name, &a);
-            a
-        }
+        Some(a) => manifest.expand_agents(&a)?,
         None => match manifest.skill_agents(name)? {
             Some(a) => a,
             None => {
-                manifest.set_skill(name, &[]);
-                warnings.push("尚未分发给任何 agent，用 --to 指定，或编辑 skills.toml 后 skl sync".into());
-                Vec::new()
+                let all = manifest.expand_agents(&["all".to_string()])?;
+                warnings.push(format!("首次发布未指定 --to，默认分发给全部 agent：{}", all.join(", ")));
+                all
             }
         },
     };
+    manifest.set_skill(name, &agents);
     manifest.save()?;
     let sync = sync(root, false)?;
     let dev_rel = format!("dev/{name}");
@@ -848,7 +862,7 @@ fn finish(root: &Root, manifest: &mut Manifest, name: &str, to: Option<Vec<Strin
 
 fn parse_agents_check(manifest: &Manifest, to: &Option<Vec<String>>) -> Result<()> {
     if let Some(a) = to {
-        manifest.check_agents(a)?;
+        manifest.expand_agents(a)?;
     }
     Ok(())
 }
@@ -936,12 +950,83 @@ pub fn set_agents(root: &Root, name: &str, agents: &[String]) -> Result<SyncRepo
         bail!("`{name}` 尚未发布，先 skl publish");
     }
     let mut manifest = Manifest::load(root)?;
-    manifest.check_agents(agents)?;
+    let agents = &manifest.expand_agents(agents)?;
     manifest.set_skill(name, agents);
     manifest.save()?;
     let rep = sync(root, false)?;
     git_commit(root, &format!("route: {name} → [{}]", agents.join(", ")), &[MANIFEST]);
     Ok(rep)
+}
+
+/// Add agents to a released skill without republishing it.
+pub fn link(root: &Root, name: &str, add: &[String]) -> Result<(Vec<String>, SyncReport)> {
+    let manifest = Manifest::load(root)?;
+    let mut agents = manifest.skill_agents(name)?.unwrap_or_default();
+    for a in manifest.expand_agents(add)? {
+        if !agents.contains(&a) {
+            agents.push(a);
+        }
+    }
+    let rep = set_agents(root, name, &agents)?;
+    Ok((agents, rep))
+}
+
+/// Remove agents from a released skill; the release itself stays.
+pub fn unlink(root: &Root, name: &str, remove: &[String]) -> Result<(Vec<String>, SyncReport)> {
+    let manifest = Manifest::load(root)?;
+    let remove = manifest.expand_agents(remove)?;
+    let agents: Vec<String> = manifest
+        .skill_agents(name)?
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|a| !remove.contains(a))
+        .collect();
+    let rep = set_agents(root, name, &agents)?;
+    Ok((agents, rep))
+}
+
+pub struct DeleteReport {
+    pub trashed: Option<PathBuf>,
+    pub unpublished: Option<SyncReport>,
+}
+
+/// Delete a skill entirely: unpublish it if released, then move `dev/<name>`
+/// into `<root>/.trash/` (not removed, so a mistaken delete can be undone).
+pub fn delete(root: &Root, name: &str) -> Result<DeleteReport> {
+    check_name(name)?;
+    let dev = root.dev().join(name);
+    let released = is_real_dir(&root.released().join(name));
+    let in_manifest = Manifest::load(root)?.skill_agents(name)?.is_some();
+    if !is_real_dir(&dev) && !released && !in_manifest {
+        bail!("没有 `{name}` 这个 skill");
+    }
+    let unpublished = if released || in_manifest { Some(unpublish(root, name)?) } else { None };
+    let trashed = if is_real_dir(&dev) {
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let trash = root.path.join(".trash");
+        fs::create_dir_all(&trash)?;
+        let dst = trash.join(format!("{name}-{stamp}"));
+        fs::rename(&dev, &dst)?;
+        let dev_rel = format!("dev/{name}");
+        git_commit(root, &format!("delete: {name}"), &[&dev_rel]);
+        Some(dst)
+    } else {
+        None
+    };
+    Ok(DeleteReport { trashed, unpublished })
+}
+
+pub fn skill_path(root: &Root, name: &str) -> Result<PathBuf> {
+    check_name(name)?;
+    for p in [root.dev().join(name), root.released().join(name)] {
+        if is_real_dir(&p) {
+            return Ok(p);
+        }
+    }
+    bail!("没有 `{name}` 这个 skill")
 }
 
 /// Top-level entries of a skill dir, for display.

@@ -27,12 +27,12 @@ skl init                      # 或 skl init --root ~/somewhere/skills
 skl --help
 ```
 
-常用：`skl new` / `skl test` / `skl publish <name> --to claude,codex` / `skl ls` / `skl doctor` / `skl sync`。
+常用：`skl new` / `skl test` / `skl publish <name> --to claude,codex` / `skl link <name> claude` / `skl ls --agent codex` / `skl open <name>` / `skl delete <name>` / `skl doctor` / `skl sync`。
 
 ## 桌面应用功能
 
 - 侧栏按状态（开发中 / 有未发布改动 / 已发布）和 agent 筛选
-- 详情：发布（两次点击确认）、按 agent 开关分发、取消发布、SKILL.md 预览、文件列表、dev / released 路径
+- 详情：发布（两次点击确认）、按 agent 开关分发、取消发布、删除（移入 `.trash/`）、SKILL.md 预览、文件列表、dev / released 路径
 - Doctor：断链、冲突、清单不一致、缺依赖；可预览并执行同步
 - 新建 skill（写入 `dev/`）
 - 三套主题、列表/网格视图、紧凑/舒适密度

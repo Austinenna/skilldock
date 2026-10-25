@@ -8,12 +8,18 @@ const HELP: &str = "skl —— SkillDock 命令行：开发、测试、发布 sk
   skl init [--root PATH]          创建根目录结构；--root 会写入 ~/.config/skilldock/config.toml
   skl root                        显示当前根目录
   skl new <name>                  在 dev/ 新建 skill 骨架
-  skl ls                          列出所有 skill 的状态和分发情况
+  skl ls [--agent codex]          按状态分组列出 skill；--agent 只看分发给某个 agent 的
+  skl open <name>                 用 Finder 打开 skill 目录（优先开发区）
   skl test <name> [--clean]       把开发版链到 _sandbox，测试自动触发
-  skl publish <name> [--to a,b]   发布：dev → released 快照，同步链接，git 提交
+  skl publish <name> [--to a,b|all]
+                                  发布：dev → released 快照，同步链接，git 提交。
+                                  不带 --to：首次发布给全部 agent，更新沿用原分发
+  skl link <name> <agent>...      追加分发（不重新发布内容），agent 可用 all
+  skl unlink <name> <agent>...    移除分发（发布版保留）
   skl adopt <path> [--as name] [--to a,b] [--remove-source]
                                   把已有目录收为发布版（迁移/收录第三方）
   skl unpublish <name>            取消发布：删链接和 released/<name>，保留 dev/
+  skl delete <name> [--yes]       删除 skill：取消发布，dev/<name> 移到 .trash/
   skl sync [--dry-run]            按 skills.toml 修正所有 agent 目录的链接
   skl doctor                      体检
 
@@ -74,11 +80,6 @@ impl Args {
     }
 }
 
-/// Terminal columns: CJK characters take two.
-fn display_width(s: &str) -> usize {
-    s.chars().map(|c| if (c as u32) >= 0x1100 { 2 } else { 1 }).sum()
-}
-
 fn print_sync(rep: &SyncReport, dry: bool) {
     let mut changed = 0;
     for it in &rep.items {
@@ -120,7 +121,7 @@ fn run() -> Result<()> {
         return Ok(());
     }
     let cmd = raw.remove(0);
-    let args = Args::parse(raw, &["root", "to", "as"])?;
+    let args = Args::parse(raw, &["root", "to", "as", "agent"])?;
 
     match cmd.as_str() {
         "init" => {
@@ -160,16 +161,75 @@ fn run() -> Result<()> {
             println!("已创建 {}/SKILL.md", tildify(&dir));
         }
         "ls" | "list" => {
-            args.only(&[])?;
-            let list = status(&resolve_root()?)?;
+            args.only(&["agent"])?;
+            let root = resolve_root()?;
+            let mut list = status(&root)?;
+            if let Some(a) = args.value("agent") {
+                Manifest::load(&root)?.check_agents(std::slice::from_ref(&a))?;
+                list.retain(|s| s.agents.contains(&a));
+            }
             if list.is_empty() {
                 println!("（没有 skill）");
             }
             let w = list.iter().map(|s| s.name.len()).max().unwrap_or(0).max(4);
-            for s in list {
-                let agents = if s.agents.is_empty() { "-".to_string() } else { s.agents.join(",") };
-                let label = s.state.label();
-                println!("{:<w$}  {label}{}  {agents}", s.name, " ".repeat(18usize.saturating_sub(display_width(label))));
+            // Things needing attention first.
+            let groups = [State::DevAhead, State::DevOnly, State::Released, State::ReleasedOnly, State::ManifestOnly];
+            let mut first = true;
+            for g in groups {
+                let items: Vec<_> = list.iter().filter(|s| s.state == g).collect();
+                if items.is_empty() {
+                    continue;
+                }
+                if !first {
+                    println!();
+                }
+                first = false;
+                println!("{}（{}）", g.label(), items.len());
+                for s in items {
+                    let agents = if s.agents.is_empty() { "-".to_string() } else { s.agents.join(", ") };
+                    println!("  {:<w$}  {agents}", s.name);
+                }
+            }
+        }
+        "open" => {
+            args.only(&[])?;
+            let path = skill_path(&resolve_root()?, &args.one("name")?)?;
+            let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+            std::process::Command::new(opener).arg(&path).status()?;
+            println!("{}", tildify(&path));
+        }
+        "link" | "unlink" => {
+            args.only(&[])?;
+            let (name, agents) = match args.positional.split_first() {
+                Some((n, rest)) if !rest.is_empty() => (n.clone(), rest.to_vec()),
+                _ => return Err(Error(format!("用法：skl {cmd} <name> <agent>...（agent 可用 all）"))),
+            };
+            let root = resolve_root()?;
+            let (now, rep) = if cmd == "link" { link(&root, &name, &agents)? } else { unlink(&root, &name, &agents)? };
+            println!("{name} 现在分发给：{}", if now.is_empty() { "（无）".to_string() } else { now.join(", ") });
+            print_sync(&rep, false);
+        }
+        "delete" | "rm" => {
+            args.only(&["yes"])?;
+            let name = args.one("name")?;
+            let root = resolve_root()?;
+            if !args.flag("yes") {
+                eprint!("删除 {name}：取消发布并把 dev/{name} 移到 .trash/。确认？[y/N] ");
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if !matches!(answer.trim(), "y" | "Y" | "yes") {
+                    println!("已取消");
+                    return Ok(());
+                }
+            }
+            let rep = delete(&root, &name)?;
+            if let Some(sync) = &rep.unpublished {
+                println!("已取消发布 {name}");
+                print_sync(sync, false);
+            }
+            match rep.trashed {
+                Some(p) => println!("dev/{name} 已移到 {}（需要时可移回 dev/）", tildify(&p)),
+                None => println!("开发区没有 {name}，无需移动"),
             }
         }
         "test" => {

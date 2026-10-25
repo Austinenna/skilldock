@@ -11,6 +11,8 @@ export const api = {
   setSkillAgents: (name: string, agents: string[]) =>
     invoke<SyncResult>('set_skill_agents', { name, agents }),
   unpublishSkill: (name: string) => invoke<SyncResult>('unpublish_skill', { name }),
+  /** returns where dev/<name> was moved, or null */
+  deleteSkill: (name: string) => invoke<string | null>('delete_skill', { name }),
   runSync: (dryRun: boolean) => invoke<SyncResult>('run_sync', { dryRun }),
   runDoctor: () => invoke<Finding[]>('run_doctor'),
   getConfig: () => invoke<Config>('get_config'),

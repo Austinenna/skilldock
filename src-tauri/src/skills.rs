@@ -212,6 +212,13 @@ pub fn unpublish_skill(name: String) -> Result<SyncResult> {
     Ok(sync_result(rep, Vec::new(), None))
 }
 
+/// Unpublishes if needed and moves dev/<name> into <root>/.trash/.
+#[tauri::command]
+pub fn delete_skill(name: String) -> Result<Option<String>> {
+    let rep = core::delete(&core::resolve_root()?, &name)?;
+    Ok(rep.trashed.map(|p| core::tildify(&p)))
+}
+
 #[tauri::command]
 pub fn run_sync(dry_run: bool) -> Result<SyncResult> {
     let rep = core::sync(&core::resolve_root()?, dry_run)?;
