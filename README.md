@@ -159,3 +159,7 @@ pnpm release:mac
 ```
 
 完整流程见 `DEVELOPMENT.md` §8。
+
+## 协议
+
+[MIT](LICENSE)。本仓库只有工具本身，不含任何 skill。
